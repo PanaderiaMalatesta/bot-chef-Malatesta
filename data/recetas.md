@@ -488,6 +488,17 @@ incorporar esta mezcla a la nata y terminar de montar suavemente.
 **Montaje:** abrir el bizcocho, rellenar con el frosting, cerrar y decorar
 al gusto.
 
+## Alfajores (categoría nueva, recetario interno en ampliación)
+
+### Alfajor Marplatense — rinde 12 alfajores (24 tapas, clásico de Mar del Plata: tapas de chocolate, relleno de dulce de leche, baño de chocolate semiamargo)
+**Tapas de chocolate** (receta base ×2 para completar las 24 tapas del lote): mantequilla 300 g, azúcar 100 g, glucosa 100 g, ralladura de limón 5 g, ralladura de naranja 8 g, huevo 2 unidades, esencia de vainilla 8 g, harina todo uso 500 g, fécula de maíz 100 g, polvo de hornear 16 g, bicarbonato de sodio 10 g, cacao en polvo 40 g.
+Procedimiento: batir la mantequilla a temperatura ambiente hasta suavizar → agregar azúcar, glucosa y las ralladuras de limón y naranja, batir hasta cremar → añadir el huevo y la esencia de vainilla, integrar → incorporar los secos tamizados (harina, fécula de maíz, polvo de hornear, bicarbonato, cacao en polvo), mezclar primero con espátula y luego a mano sin amasar → estirar entre láminas de papel film a 4 mm de espesor, refrigerar 1 hora o congelar 30 minutos → cortar tapas con cortante de 7 cm, refrigerar 10 minutos más → hornear a 170°C por 8-10 minutos, hasta que al tocar no queden marcas → enfriar sobre la placa y luego pasar a rejilla.
+
+**Armado:** rellenar la mitad de las tapas (lado liso hacia afuera) con manga pastelera de dulce de leche casero, usando ~65 g por alfajor (900 g de dulce de leche para las 24 tapas/12 alfajores) → colocar la tapa restante encima y ajustar bordes con más dulce de leche.
+
+**Baño de chocolate semiamargo:** calentar 550 g de cobertura de chocolate semiamargo en microondas en intervalos de 30 segundos hasta 40-45°C (sin curva de temperado) → sumergir cada alfajor cubriendo ambos lados, escurrir el exceso → dejar reposar a temperatura ambiente en lugar fresco, evitando el refrigerador (para que no formen vetas).
+Reposo antes de consumir: mínimo 2 días, para que las tapas absorban humedad del relleno. Conservación: envase hermético, lugar fresco, 7 a 10 días.
+
 ## Notas de food cost objetivo por categoría (benchmark del negocio)
 - Facturas: objetivo <20% (rango sano boutique 25-35%, facturas están debajo por ser el producto ancla)
 - Medialunas Clásicas: objetivo <30%
