@@ -29,29 +29,31 @@ Formatos de venta: unitaria $1.500 · trío (3u) $4.000 · media docena (6u) $6.
 ## Medialunas de mantequilla
 
 ### Masa base — rinde 71 medialunas por lote (9,585 kg masa + laminado)
-Mismo pastón base que facturas pero con mantequilla (en vez de margarina) y vainilla de Tahití (en vez de esencia regular).
-Costo total del lote: $28.387 (harina $3.840, leche en polvo $2.667, azúcar $418, glucosa $80, sal $40, vainilla de Tahití $8.072, mantequilla $13.270).
-Costo de masa por unidad: ~$400.
+Mismo pastón base que facturas pero con mantequilla en vez de margarina (laminado con 500 g de mantequilla por cada 2,8 kg de masa — empaste que rinde 24 medialunas). Usa esencia de vainilla regular, igual que facturas (100 ml por lote) — ya NO lleva vainilla de Tahití.
+Costo total del lote: $24.433,57 (harina $4.800, leche en polvo $2.665,60, azúcar $417,97, glucosa $80, sal $40, esencia de vainilla $150, mantequilla $16.280).
+Costo de masa por unidad: ~$344.
 
 ### Almíbar de naranja (glaseado)
 100 g azúcar + 100 ml agua por docena de medialunas. Costo: ~$8/unidad.
 
 ### Línea Tradicional (sin relleno)
-Solo masa + almíbar. Costo total: $408/unidad. Precio venta $1.690. Food cost 24,1%.
+Solo masa + almíbar. Costo total: $352/unidad. Precio venta $1.790. Food cost 19,7%.
 
-### Línea Clásica (con relleno, precio venta $1.890 todas)
-- Dulce de leche: 50 g × $4.000/kg = $200 → costo total $608 → food cost 32,2%
-- Membrillo: 40 g × $2.500/kg = $100 → costo total $508 → food cost 26,9%
-- Pastelera (misma receta que facturas): 40 g × $1,37/g = $55 → costo total $463 → food cost 24,5%
-- Manzana canela: 50 g × $2,24/g = $112 → costo total $520 → food cost 27,5%
+### Línea Clásica (con relleno, precio venta $2.000 todas)
+- Dulce de leche: 50 g de dulce de leche → costo total $492 → food cost 24,6%
+- Membrillo: 40 g de membrillo → costo total $452 → food cost 22,6%
+- Pastelera (misma receta que facturas): 40 g → costo total $406 → food cost 20,3%
+- Manzana canela: 50 g de relleno → costo total $467 → food cost 23,3%
   (receta de relleno: 900 g manzana verde, 60 g mantequilla, 170 g azúcar, ~7 g canela en polvo, ~8 g maicena, ~1,5 g sal, 30 ml agua)
 
 ### Línea Especial (precio venta $2.390 todas)
-- Chocotorta: relleno 40 g (20 g dulce de leche $80 + 20 g queso crema $263) $343 + baño chocolate 25 g × $8.000/kg = $200 + galleta de chocolate molida $50 → costo total $1.001 → food cost 41,9%
-- Nutella chocolate blanco y nueces: 40 g Nutella × $6.663/kg = $267 + 20 g chocolate blanco × $8.000/kg = $160 + 5 g nueces × $4.998/kg = $25 → relleno $452 → costo total $860 → food cost 36,0%
+- Chocotorta: relleno 40 g (20 g dulce de leche + 20 g queso crema) + baño chocolate 25 g + galleta de chocolate molida → costo total $921 → food cost 38,6%
+- Nutella chocolate blanco y nueces: 40 g Nutella + 20 g chocolate blanco + 5 g nueces → costo total $804 → food cost 33,6%
 
 ### Línea Premium (precio venta $3.690)
-- Pistacho: 40 g crema de pistacho × $22.265/kg = $891 (relleno interno) + 3 g pistacho picado × $55,98/g = $168 (topping, sin cobertura adicional) → costo total $1.467 → food cost 39,8%
+- Pistacho: 40 g crema de pistacho (relleno interno) + 3 g pistacho picado (topping, sin cobertura adicional) → costo total $1.411 → food cost 38,2%
+
+Nota de metodología: el food cost de esta sección se calcula como costo ÷ precio de venta (precio de mostrador tal cual, sin descontar IVA) — consistente con el resto de este documento y con el cálculo en vivo del bot. Es distinto del food cost "neto" (sin IVA) usado en el análisis de punto de equilibrio del negocio, que da un porcentaje más alto para el mismo producto.
 
 ## Sándwiches de mañana
 
