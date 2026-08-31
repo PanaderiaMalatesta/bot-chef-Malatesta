@@ -358,10 +358,65 @@ def _asegurar_en_catalogo(producto: str, variante: str) -> None:
         return
     nueva_fila = pd.DataFrame([{
         "producto": producto, "variante": variante, "categoria": "SinClasificar",
-        "precio_venta": None, "costo_fijo": None,
+        "precio_venta": None, "costo_fijo": None, "tiempo_fabricacion_min": None,
     }])
     catalogo = pd.concat([catalogo, nueva_fila], ignore_index=True)
     catalogo.to_csv(CATALOGO_PATH, index=False)
+
+
+def actualizar_info_producto(
+    producto: str, variante: str, categoria: str | None = None,
+    precio_venta: float | None = None, tiempo_fabricacion_min: float | None = None,
+) -> str:
+    """Actualiza (o crea si no existe) la categoria, precio de venta y/o tiempo
+    de fabricacion de un producto/variante en catalogo_precios.csv. Los
+    argumentos en None no se tocan."""
+    _asegurar_en_catalogo(producto, variante)
+    producto, variante = _resolver_producto_variante(producto, variante)
+    catalogo = _load_catalogo()
+    mask = (
+        (catalogo["producto"].apply(_normalizar) == _normalizar(producto))
+        & (catalogo["variante"].apply(_normalizar) == _normalizar(variante))
+    )
+    if categoria is not None:
+        catalogo.loc[mask, "categoria"] = categoria
+    if precio_venta is not None:
+        catalogo.loc[mask, "precio_venta"] = precio_venta
+    if "tiempo_fabricacion_min" not in catalogo.columns:
+        catalogo["tiempo_fabricacion_min"] = None
+    if tiempo_fabricacion_min is not None:
+        catalogo.loc[mask, "tiempo_fabricacion_min"] = tiempo_fabricacion_min
+    catalogo.to_csv(CATALOGO_PATH, index=False)
+    return f"{_legible(producto)} {_legible(variante)} actualizado en el catálogo."
+
+
+def reemplazar_receta_completa(
+    producto: str, variante: str, lineas: list[dict],
+    categoria: str | None = None, precio_venta: float | None = None,
+    tiempo_fabricacion_min: float | None = None,
+) -> str:
+    """Reemplaza TODA la receta de un producto/variante de una sola vez: borra
+    los insumos que tuviera antes y carga `lineas` (cada una con componente,
+    insumo, cantidad -- ya en cantidad POR UNIDAD, no por lote -- y unidad).
+    Pensado para sincronizacion automatizada (ej. desde el planificador web),
+    no para el chat -- no pide confirmacion porque no hay un humano
+    respondiendo en el momento."""
+    ingredientes = _load_ingredientes()
+    filas_previas = _filas_receta(ingredientes, producto, variante)
+    if not filas_previas.empty:
+        ingredientes = ingredientes.drop(filas_previas.index)
+
+    nuevas = pd.DataFrame([{
+        "producto": producto, "variante": variante,
+        "componente": linea.get("componente", "Receta"),
+        "insumo": linea["insumo"], "cantidad": linea["cantidad"],
+        "unidad": linea["unidad"], "rendimiento_lote": 1,
+    } for linea in lineas])
+    ingredientes = pd.concat([ingredientes, nuevas], ignore_index=True)
+    ingredientes.to_csv(INGREDIENTES_PATH, index=False)
+
+    actualizar_info_producto(producto, variante, categoria, precio_venta, tiempo_fabricacion_min)
+    return f"Receta de {_legible(producto)} {_legible(variante)} reemplazada con {len(lineas)} insumos."
 
 
 def agregar_ingrediente_receta(producto: str, variante: str, componente: str, insumo: str, cantidad_lote: float, unidad: str) -> str:
@@ -693,6 +748,11 @@ def receta_estandar(producto: str, variante: str) -> str:
         for fila in grupo.itertuples():
             cantidad_lote = fila.cantidad * rendimiento_lote
             lineas.append(f"    - {fila.insumo}: {_formatear_cantidad(cantidad_lote, fila.unidad)}")
+
+    tiempo = info.get("tiempo_fabricacion_min") if "tiempo_fabricacion_min" in info else None
+    if pd.notna(tiempo):
+        lineas.append(f"  Tiempo de fabricación: {float(tiempo):g} min/unidad")
+
     return "\n".join(lineas)
 
 

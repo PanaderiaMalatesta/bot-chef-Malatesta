@@ -63,6 +63,40 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"mensaje": mensaje})
             return
 
+        if self.path == "/sync/producto":
+            producto = body.get("producto")
+            variante = body.get("variante", "")
+            lineas = body.get("lineas")
+            if not producto or not lineas:
+                self._send_json(400, {"error": "faltan campos producto/lineas"})
+                return
+            try:
+                mensaje = tools.reemplazar_receta_completa(
+                    producto, variante, lineas,
+                    categoria=body.get("categoria"),
+                    precio_venta=body.get("precio_venta"),
+                    tiempo_fabricacion_min=body.get("tiempo_fabricacion_min"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(500, {"error": str(exc)})
+                return
+            self._send_json(200, {"mensaje": mensaje})
+            return
+
+        if self.path == "/sync/producto-eliminar":
+            producto = body.get("producto")
+            variante = body.get("variante", "")
+            if not producto:
+                self._send_json(400, {"error": "falta campo producto"})
+                return
+            try:
+                mensaje = tools.eliminar_producto(producto, variante, confirmado=True)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json(500, {"error": str(exc)})
+                return
+            self._send_json(200, {"mensaje": mensaje})
+            return
+
         self._send_json(404, {"error": "not found"})
 
 
