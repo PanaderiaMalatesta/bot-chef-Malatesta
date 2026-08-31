@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
+from . import sync_server
 from .agent import build_agent
 
 load_dotenv()
@@ -105,6 +106,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
+    sync_server.start_background()
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
