@@ -237,6 +237,28 @@ def actualizar_precio_insumo(insumo: str, nuevo_precio: float) -> str:
     return f"Precio de {nombre_real} actualizado: ${precio_anterior:.0f} -> ${nuevo_precio:.0f}."
 
 
+def crear_o_actualizar_insumo(insumo: str, precio: float, unidad: str = "kg") -> str:
+    """Crea el insumo en precios_insumos.csv si no existe (con `unidad`: kg, L,
+    unidad o porcion) o actualiza su precio si ya existe. A diferencia de
+    actualizar_precio_insumo (que exige que el insumo ya exista, para que un
+    typo del chat no cree un insumo fantasma), esta función SÍ crea -- pensada
+    para sincronización automatizada desde el planificador web, donde un
+    insumo/empaque nuevo es una operación legítima y esperada."""
+    if unidad not in _FACTOR_A_UNIDAD_INSUMO:
+        return f"Unidad '{unidad}' no válida. Usa una de: {', '.join(_FACTOR_A_UNIDAD_INSUMO)}."
+    precios = _load_precios_insumos()
+    mask = precios["insumo"].str.lower() == insumo.lower()
+    if mask.any():
+        precio_anterior = precios.loc[mask, "precio"].iloc[0]
+        precios.loc[mask, "precio"] = precio
+        precios.to_csv(PRECIOS_INSUMOS_PATH, index=False)
+        return f"Precio de {insumo} actualizado: ${precio_anterior:.0f} -> ${precio:.0f}."
+    nueva = pd.DataFrame([{"insumo": insumo, "precio": precio, "unidad": unidad}])
+    precios = pd.concat([precios, nueva], ignore_index=True)
+    precios.to_csv(PRECIOS_INSUMOS_PATH, index=False)
+    return f"Insumo nuevo creado: {insumo} a ${precio:.0f}/{unidad}."
+
+
 def _filas_receta(ingredientes: pd.DataFrame, producto: str, variante: str, componente: str | None = None) -> pd.DataFrame:
     """Filas de recetas_ingredientes.csv para un producto/variante (y opcionalmente
     componente), por igualdad normalizada exacta."""

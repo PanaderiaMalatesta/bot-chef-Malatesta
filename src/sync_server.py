@@ -56,7 +56,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "faltan campos insumo/nuevo_precio"})
                 return
             try:
-                mensaje = tools.actualizar_precio_insumo(insumo, float(nuevo_precio))
+                mensaje = tools.crear_o_actualizar_insumo(insumo, float(nuevo_precio), body.get("unidad", "kg"))
             except Exception as exc:  # noqa: BLE001
                 self._send_json(500, {"error": str(exc)})
                 return
