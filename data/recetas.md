@@ -490,6 +490,19 @@ incorporar esta mezcla a la nata y terminar de montar suavemente.
 **Montaje:** abrir el bizcocho, rellenar con el frosting, cerrar y decorar
 al gusto.
 
+## Muffins (categoría nueva, recetario interno en ampliación)
+
+### Muffin de Chocolate — rinde 24 unidades
+Ingredientes húmedos: mantequilla derretida 180 g, aceite 180 mL, huevos 6
+unidades, azúcar regular 720 g, café soluble 6 cucharadas (~36 g, estimado),
+leche 765 mL (o 91,8 g de leche en polvo disuelta en agua).
+Ingredientes secos: harina de trigo todo uso 975 g, cocoa 198 g, polvo de
+hornear 7½ cucharaditas, bicarbonato de sodio 1½ cucharadita, sal ¾
+cucharadita, chispas de chocolate 510 g.
+Decoración: trozos de chocolate 90 g, azúcar glass 9 cucharadas.
+
+Horneado a 165°C por 26 minutos.
+
 ## Alfajores (categoría nueva, recetario interno en ampliación)
 
 ### Alfajor Marplatense — rinde 12 alfajores (24 tapas, clásico de Mar del Plata: tapas de chocolate, relleno de dulce de leche, baño de chocolate semiamargo)
