@@ -23,6 +23,14 @@ from . import tools as t
 
 RECETAS_IMPORTADAS_PATH = ingest.DATA_DIR / "recetas_importadas.md"
 
+# Palabras de afirmacion/relleno que Raul usa para decir "sí, guarda con el
+# nombre sugerido" sin repetirlo (ver pregunta "producto" en aplicar_respuesta).
+_PALABRAS_AFIRMATIVAS_NOMBRE = re.compile(
+    r"\b(si|sí|dale|ok|correcto|esa|ese|esta|está|estan|están|bien|misma|mismo|"
+    r"usa|la|el|referencia|sugerida|sugerencia)\b",
+    re.IGNORECASE,
+)
+
 
 def slug_insumo(nombre: str) -> str:
     texto = unicodedata.normalize("NFKD", nombre)
@@ -357,14 +365,15 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
     if tipo == "producto":
         nombre = texto.strip()
         sugerido = receta.original.nombre
-        # "usa la referencia"/"esa"/"si"/"dale" -- Raul confirmando el
-        # nombre sugerido en vez de escribirlo de nuevo. Sin esto, el texto
-        # literal de la confirmacion quedaba como nombre del producto (paso
-        # en produccion: la receta se guardo como "usa la referencia").
-        if sugerido and re.match(
-            r"^\s*(s[ií]|dale|ok|correcto|esa|es[ae]\s+misma|usa\s+la\s+(referencia|sugerida|sugerencia)|la\s+(sugerida|sugerencia))\s*\.?\s*$",
-            nombre, re.IGNORECASE,
-        ):
+        # Raul puede confirmar el nombre sugerido con cualquier variante de
+        # "sí, esa"/"dale"/"está bien ese"/"usa la referencia" en vez de
+        # reescribirlo -- en vez de una lista fija de frases (que ya fallo
+        # dos veces en produccion: "usa la referencia" y "esta bien ese"
+        # quedaron guardados como nombre LITERAL), se sacan las palabras de
+        # afirmacion/relleno conocidas y si no queda nada mas, es un "sí".
+        resto = _PALABRAS_AFIRMATIVAS_NOMBRE.sub("", nombre)
+        resto = re.sub(r"[.,!¡¿?\s]+", "", resto)
+        if sugerido and not resto:
             estado["producto"] = sugerido
             estado["variante"] = ""
             return None
