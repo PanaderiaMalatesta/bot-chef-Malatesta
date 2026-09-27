@@ -112,9 +112,9 @@ async def _continuar_importacion(update: Update, chat_id: int, texto_respuesta: 
             return
         if _PATRON_NO.match(texto_respuesta or ""):
             del _chat_importacion[chat_id]
-            await update.message.reply_text("Ok, no guardé nada. Mandámela de nuevo con las correcciones si querés reintentar.")
+            await update.message.reply_text("Ok, no guardé nada. Mándamela de nuevo con las correcciones si quieres reintentar.")
             return
-        await update.message.reply_text('Respondé "sí" para guardar o "no" para descartar.')
+        await update.message.reply_text('Responde "sí" para guardar o "no" para descartar.')
         return
 
     pregunta = recipe_pipeline.siguiente_pregunta(estado)
@@ -143,7 +143,7 @@ async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         texto = recipe_import.extraer_de_imagen(contenido)
     except Exception as exc:  # noqa: BLE001
-        await update.message.reply_text(f"No pude leer la imagen (OCR falló: {exc}). Probá con una foto más nítida.")
+        await update.message.reply_text(f"No pude leer la imagen (OCR falló: {exc}). Prueba con una foto más nítida.")
         return
     metadata = recipe_import.RawExtraction(texto_crudo=texto, fuente_tipo="imagen", exitosa=bool(texto.strip()))
     if not texto.strip():

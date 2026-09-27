@@ -68,8 +68,8 @@ def extraer_de_url(url: str) -> RawExtraction:
             exitosa=False,
             advertencias=[
                 f"{nombre} no está soportado automáticamente todavía (bloquea el acceso sin "
-                "login desde afuera). Pegá el texto de la publicación (con el prefijo "
-                "'Receta:') o mandame una captura de pantalla y lo proceso igual."
+                "login desde afuera). Pega el texto de la publicación (con el prefijo "
+                "'Receta:') o mándame una captura de pantalla y lo proceso igual."
             ],
         )
 
@@ -106,7 +106,7 @@ def _extraer_de_video(url: str, fuente_tipo: str) -> RawExtraction:
     except Exception as exc:  # noqa: BLE001
         return RawExtraction(
             url=url, fuente_tipo=fuente_tipo, exitosa=False,
-            advertencias=[f"No pude acceder a este video ({exc}). Pegá el texto o una captura."],
+            advertencias=[f"No pude acceder a este video ({exc}). Pega el texto o una captura."],
         )
 
     advertencias: list[str] = []
@@ -121,7 +121,7 @@ def _extraer_de_video(url: str, fuente_tipo: str) -> RawExtraction:
     texto_crudo = "\n\n".join(partes)
 
     if not texto_crudo.strip():
-        advertencias.append("No pude extraer texto útil de este video (sin subtítulos ni descripción). Pegá la receta a mano.")
+        advertencias.append("No pude extraer texto útil de este video (sin subtítulos ni descripción). Pega la receta a mano.")
 
     return RawExtraction(
         texto_crudo=texto_crudo,

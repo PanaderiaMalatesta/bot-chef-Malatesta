@@ -32,6 +32,18 @@ def slug_insumo(nombre: str) -> str:
     return texto.strip("_") or "insumo_nuevo"
 
 
+def _buscar_insumo_mencionado(texto: str) -> str | None:
+    """Busca si alguna PALABRA del texto (4+ letras, para evitar falsos
+    positivos con palabras cortas comunes) coincide exactamente con el
+    nombre normalizado de un insumo que YA existe en el catalogo."""
+    precios = t._load_precios_insumos()
+    palabras = {t._normalizar(p) for p in re.split(r"\s+", texto) if len(p) >= 4}
+    for insumo in precios["insumo"]:
+        if t._normalizar(insumo) in palabras:
+            return insumo
+    return None
+
+
 def iniciar_importacion(texto_crudo: str, metadata: recipe_import.RawExtraction) -> dict:
     """Corre extraccion LLM + estandarizacion Python y arma el estado inicial
     de una importacion. No guarda nada todavia."""
@@ -56,28 +68,82 @@ def iniciar_importacion(texto_crudo: str, metadata: recipe_import.RawExtraction)
     }
 
 
+_UNIDAD_PRECIO_TXT = r"(kilos?|kg|gramos?|gr?|litros?|lt?|mililitros?|ml|unidad(?:es)?)"
+
+# Dos formas en que la gente realmente escribe un precio (probadas contra
+# casos reales de produccion): "$5.000 el kg" (precio primero) y
+# "20 g cuestan 1000" (cantidad primero, con verbo). La version anterior
+# (un solo regex laxo que agarraba el primer numero+unidad de la frase, sin
+# exigir "cuesta"/"$") interpretaba mal frases como "20 g cuestan 1000"
+# -- tomaba "20"+"g" como si fueran el precio, ignorando el "1000" real, y
+# daba una cifra silenciosamente inventada. Ahora, si el texto no calza con
+# ninguno de estos dos patrones explicitos, se pide que lo reformule en vez
+# de adivinar.
+_PATRON_PRECIO_UNIDAD_PRIMERO = re.compile(
+    r"\$?\s*([\d.,]+)\s*(?:por|el|la|cada|/)\s*" + _UNIDAD_PRECIO_TXT, re.IGNORECASE,
+)
+_PATRON_CANTIDAD_CUESTA_PRECIO = re.compile(
+    r"([\d.,]+)\s*" + _UNIDAD_PRECIO_TXT + r"\s*(?:cuestan?|valen?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)",
+    re.IGNORECASE,
+)
+
+
+def _normalizar_unidad_precio(unidad_txt: str) -> tuple[str, float] | tuple[None, None]:
+    """(unidad canonica de cotizacion, factor para pasar un precio "por esa
+    unidad chica" a precio "por kg/L")."""
+    u = unidad_txt.lower()
+    if u.startswith("kilo") or u == "kg":
+        return "kg", 1
+    if u in ("g", "gr", "gramo", "gramos"):
+        return "kg", 1000
+    if u in ("ml", "mililitro", "mililitros"):
+        return "L", 1000
+    if u.startswith("litro") or u in ("l", "lt"):
+        return "L", 1
+    if u.startswith("unidad"):
+        return "unidad", 1
+    return None, None
+
+
+def _num_precio(texto: str) -> float | None:
+    """Precios en este sistema son siempre pesos chilenos enteros (nunca se
+    vio un decimal en toda la sesion) -- el punto SIEMPRE es separador de
+    miles aca (ej. "5.000" = 5000), nunca un decimal. Tratarlo como decimal
+    (bug real encontrado en produccion: "$5.000 el kg" se leyo como $5) daria
+    un precio 1000x mas bajo que el real."""
+    try:
+        return float(re.sub(r"[.,]", "", texto))
+    except ValueError:
+        return None
+
+
+def _num_cantidad(texto: str) -> float | None:
+    """Cantidades (kg/L/unidades de una compra) SI pueden tener un decimal
+    real (ej. "0,5 kg"), a diferencia de los precios."""
+    try:
+        return float(texto.replace(",", "."))
+    except ValueError:
+        return None
+
+
 def _parsear_precio(texto: str) -> tuple[float, str] | tuple[None, None]:
-    m = re.search(
-        r"\$?\s*([\d.,]+)\s*(?:por|el|la|cada|/)?\s*"
-        r"(kilo\w*|kg|gramos?|gr?|litros?|lt?|mililitros?|ml|unidad(?:es)?)?",
-        texto, re.IGNORECASE,
-    )
-    if not m or not m.group(1):
-        return None, None
-    numero_str = re.sub(r"[.,]", "", m.group(1))
-    if not numero_str:
-        return None, None
-    numero = float(numero_str)
-    unidad_txt = (m.group(2) or "kg").lower()
-    if unidad_txt in ("g", "gr", "gramo", "gramos"):
-        return numero * 1000, "kg"
-    if unidad_txt in ("ml", "mililitro", "mililitros"):
-        return numero * 1000, "L"
-    if unidad_txt in ("l", "lt", "litro", "litros"):
-        return numero, "L"
-    if unidad_txt.startswith("unidad"):
-        return numero, "unidad"
-    return numero, "kg"
+    m = _PATRON_CANTIDAD_CUESTA_PRECIO.search(texto)
+    if m:
+        cantidad_txt, unidad_txt, precio_txt = m.groups()
+        cantidad, precio_total = _num_cantidad(cantidad_txt), _num_precio(precio_txt)
+        unidad_final, factor = _normalizar_unidad_precio(unidad_txt)
+        if unidad_final and cantidad and precio_total is not None:
+            return precio_total / cantidad * factor, unidad_final
+
+    m = _PATRON_PRECIO_UNIDAD_PRIMERO.search(texto)
+    if m:
+        precio_txt, unidad_txt = m.groups()
+        precio = _num_precio(precio_txt)
+        unidad_final, factor = _normalizar_unidad_precio(unidad_txt)
+        if unidad_final and precio is not None:
+            return precio * factor, unidad_final
+
+    return None, None
 
 
 def _unidad_de_cotizacion(insumo_resuelto: str | None, estado: dict) -> str | None:
@@ -121,7 +187,7 @@ def siguiente_pregunta(estado: dict) -> str | None:
             return f"\"{ing.texto_original}\" no está en el catálogo de insumos. ¿Cuánto cuesta? (ej. \"$5.000 el kg\")"
         if ing.unidad_estandar is None:
             estado["preguntando"] = ("unidad", i)
-            return f"No pude determinar la cantidad/unidad de \"{ing.texto_original}\". Mandala como \"cantidad unidad\" (ej. \"200 g\")."
+            return f"No pude determinar la cantidad/unidad de \"{ing.texto_original}\". Mándala como \"cantidad unidad\" (ej. \"200 g\")."
         unidad_ref = _unidad_de_cotizacion(ing.insumo_resuelto, estado)
         if unidad_ref and not _unidades_compatibles(ing.unidad_estandar, unidad_ref):
             estado["preguntando"] = ("peso_real", i)
@@ -155,14 +221,14 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
         ing = receta.ingredientes[idx]
         m = re.search(r"(\d+)", texto)
         if not m:
-            return f"Sobre \"{ing.texto_original}\": respondé con el número de la opción."
+            return f"Sobre \"{ing.texto_original}\": responde con el número de la opción."
         n = int(m.group(1))
         if 1 <= n <= len(ing.candidatos_ambiguos):
             ing.insumo_resuelto = ing.candidatos_ambiguos[n - 1]
         elif n == len(ing.candidatos_ambiguos) + 1:
             ing.insumo_resuelto = None
         else:
-            return f"Sobre \"{ing.texto_original}\": ese número no está en la lista, probá de nuevo."
+            return f"Sobre \"{ing.texto_original}\": ese número no está en la lista, prueba de nuevo."
         ing.ambiguo = False
         # La primera conversion (en estandarizar()) se hizo sin saber todavia
         # cual insumo era -- reintentarla ahora puede encontrar una
@@ -176,9 +242,29 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
 
     if tipo == "nuevo_insumo":
         ing = receta.ingredientes[idx]
+        # A veces "no encontrado" fue un falso negativo del matcher (ej. el
+        # insumo real se llama distinto a como lo escribio la fuente) y
+        # Raul contesta redirigiendo a uno que YA existe (ej. "reemplaza eso
+        # por maicena que ya esta en el catalogo") en vez de dar un precio.
+        # Si el texto menciona por su nombre un insumo que ya existe, usar
+        # ESE -- crear uno nuevo ahi hubiera duplicado el insumo con un
+        # precio inventado (paso en produccion: "15 gr de maicena" se leyo
+        # como precio $15.000/kg en vez de reconocer 'maicena').
+        if re.search(r"reemplaza|usa|ya\s+est[aá]|ya\s+exist|es\s+lo\s+mismo|cat[aá]logo", texto, re.IGNORECASE):
+            insumo_existente = _buscar_insumo_mencionado(texto)
+            if insumo_existente:
+                ing.insumo_resuelto = insumo_existente
+                receta.conversiones_notas.append(
+                    f"\"{ing.texto_original}\": Raúl indicó usar el insumo existente '{insumo_existente}' en vez de crear uno nuevo."
+                )
+                return None
+
         precio, unidad = _parsear_precio(texto)
         if precio is None:
-            return f"Sobre \"{ing.texto_original}\": no entendí el precio. Mandalo como \"$5.000 el kg\" o \"3000 el litro\"."
+            return (
+                f"Sobre \"{ing.texto_original}\": no entendí el precio. Mándalo como \"$5.000 el kg\" o "
+                "\"20 g cuestan 1000\" (si ya existe con otro nombre en el catálogo, dime cuál)."
+            )
         clave = slug_insumo(ing.nombre_original)
         estado["insumos_nuevos"][clave] = (precio, unidad)
         ing.insumo_resuelto = clave
@@ -203,11 +289,11 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
                         f"\"{ing.texto_original}\": Raúl aclaró que se mide por unidad -> {cantidad:g} unidad (cantidad tomada del texto original)."
                     )
                     return None
-            return f"Sobre \"{ing.texto_original}\": mandala como \"cantidad unidad\", ej. \"200 g\" o \"2 unidades\"."
+            return f"Sobre \"{ing.texto_original}\": mándala como \"cantidad unidad\", ej. \"200 g\" o \"2 unidades\"."
         cantidad = float(m.group(1).replace(",", "."))
         cantidad_conv, unidad_conv = rs._convertir_a_g_o_ml(ing.insumo_resuelto, cantidad, m.group(2), receta.conversiones_notas)
         if cantidad_conv is None:
-            return f"Sobre \"{ing.texto_original}\": no reconocí esa unidad -- probá con g, kg, mL, L o unidad."
+            return f"Sobre \"{ing.texto_original}\": no reconocí esa unidad -- prueba con g, kg, mL, L o unidad."
         ing.cantidad_lote = cantidad_conv
         ing.unidad_estandar = unidad_conv
         return None
@@ -216,7 +302,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
         ing = receta.ingredientes[idx]
         m = re.search(r"([\d.,]+)", texto)
         if not m:
-            return f"Sobre \"{ing.texto_original}\": decime el peso en gramos, ej. \"4 g\" o solo \"4\"."
+            return f"Sobre \"{ing.texto_original}\": dime el peso en gramos, ej. \"4 g\" o solo \"4\"."
         ing.cantidad_lote = float(m.group(1).replace(",", "."))
         ing.unidad_estandar = "g"
         receta.conversiones_notas.append(f"{ing.insumo_resuelto}: peso real confirmado por Raúl -> {ing.cantidad_lote:g} g (reemplaza la conversión de volumen de arriba).")
@@ -225,7 +311,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
     if tipo == "rendimiento":
         m = re.search(r"([\d.,]+)", texto)
         if not m:
-            return "Decime solo el número, ej. \"24\"."
+            return "Dime solo el número, ej. \"24\"."
         receta.rendimiento = float(m.group(1).replace(",", "."))
         resto = texto[m.end():].strip()
         receta.rendimiento_unidad = resto or receta.rendimiento_unidad or "unidades"
@@ -233,8 +319,20 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
 
     if tipo == "producto":
         nombre = texto.strip()
+        sugerido = receta.original.nombre
+        # "usa la referencia"/"esa"/"si"/"dale" -- Raul confirmando el
+        # nombre sugerido en vez de escribirlo de nuevo. Sin esto, el texto
+        # literal de la confirmacion quedaba como nombre del producto (paso
+        # en produccion: la receta se guardo como "usa la referencia").
+        if sugerido and re.match(
+            r"^\s*(s[ií]|dale|ok|correcto|esa|es[ae]\s+misma|usa\s+la\s+(referencia|sugerida|sugerencia)|la\s+(sugerida|sugerencia))\s*\.?\s*$",
+            nombre, re.IGNORECASE,
+        ):
+            estado["producto"] = sugerido
+            estado["variante"] = ""
+            return None
         if not nombre:
-            return "Decime el nombre con el que guardo la receta."
+            return "Dime el nombre con el que guardo la receta."
         estado["producto"] = nombre
         estado["variante"] = ""
         return None
@@ -281,7 +379,7 @@ def costear(estado: dict) -> dict:
             # costear con una unidad incompatible bajo ninguna circunstancia.
             sin_costear.append(
                 f"{ing.insumo_resuelto}: tengo {ing.cantidad_lote:g} {ing.unidad_estandar}, pero ese insumo "
-                f"se cotiza por {unidad_ref or '??'} -- no puedo costearlo con confianza, confirmá la cantidad real."
+                f"se cotiza por {unidad_ref or '??'} -- no puedo costearlo con confianza, confirma la cantidad real."
             )
             continue
 
@@ -353,7 +451,7 @@ def formatear_resumen(estado: dict) -> str:
         for adv in estado["metadata"].advertencias:
             partes.append(f"  - {adv}")
 
-    partes.append("\n¿Guardo esta receta en el catálogo? Respondé \"sí\" para confirmar, o \"no\" para descartarla.")
+    partes.append("\n¿Guardo esta receta en el catálogo? Responde \"sí\" para confirmar, o \"no\" para descartarla.")
     return "\n".join(partes)
 
 
