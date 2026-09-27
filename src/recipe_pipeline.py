@@ -83,7 +83,11 @@ _PATRON_PRECIO_UNIDAD_PRIMERO = re.compile(
     r"\$?\s*([\d.,]+)\s*(?:por|el|la|cada|/)\s*" + _UNIDAD_PRECIO_TXT, re.IGNORECASE,
 )
 _PATRON_CANTIDAD_CUESTA_PRECIO = re.compile(
-    r"([\d.,]+)\s*" + _UNIDAD_PRECIO_TXT + r"\s*(?:cuestan?|valen?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)",
+    # "cuest\w*" en vez de "cuestan?" para tolerar typos comunes de conjugacion
+    # (ej. "20 g cuestas 1000" en vez de "cuestan") sin dejar de exigir un
+    # verbo de costo explicito -- eso es lo que evita que se confunda un
+    # numero cualquiera de la frase con el precio.
+    r"([\d.,]+)\s*" + _UNIDAD_PRECIO_TXT + r"\s*(?:cuest\w*|vale[n]?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)",
     re.IGNORECASE,
 )
 
