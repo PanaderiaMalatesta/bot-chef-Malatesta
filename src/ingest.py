@@ -17,12 +17,15 @@ from .paths import DATA_DIR
 load_dotenv()
 
 RECETAS_PATH = DATA_DIR / "recetas.md"
+RECETAS_IMPORTADAS_PATH = DATA_DIR / "recetas_importadas.md"
 INDEX_DIR = DATA_DIR / "index_recetas"
 
 
 def build_index() -> FAISS:
-    loader = TextLoader(str(RECETAS_PATH), encoding="utf-8")
-    documentos = loader.load()
+    rutas = [RECETAS_PATH] + ([RECETAS_IMPORTADAS_PATH] if RECETAS_IMPORTADAS_PATH.exists() else [])
+    documentos = []
+    for ruta in rutas:
+        documentos.extend(TextLoader(str(ruta), encoding="utf-8").load())
 
     splitter = MarkdownTextSplitter(chunk_size=800, chunk_overlap=100)
     chunks = splitter.split_documents(documentos)

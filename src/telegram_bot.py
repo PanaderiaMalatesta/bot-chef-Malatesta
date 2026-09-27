@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from . import sync_server
+from . import recipe_import, recipe_pipeline, sync_server
 from .agent import build_agent
 
 load_dotenv()
@@ -78,6 +78,79 @@ def _expandir_respuesta_numerica(texto: str, ultima_lista: dict[int, str]) -> st
     return f"Quiero la opción número {numero} de la última lista numerada que me mostraste."
 
 
+# --- Importacion de recetas desde links/texto/fotos -----------------------
+#
+# Un link o una foto activan la importacion automaticamente (el bot nunca
+# manejaba fotos antes, y un link no tiene otro uso en este bot, asi que no
+# hay ambiguedad con una pregunta normal). Texto pegado sin link necesita el
+# prefijo "Receta:" para no confundirse con una pregunta al agente.
+_chat_importacion: dict[int, dict] = {}
+
+_PATRON_URL = re.compile(r"https?://\S+")
+_PREFIJO_RECETA = re.compile(r"^\s*receta\s*:\s*(.*)$", re.IGNORECASE | re.DOTALL)
+_PATRON_SI = re.compile(r"^\s*(s[ií]|dale|ok|confirmo|correcto)\b", re.IGNORECASE)
+_PATRON_NO = re.compile(r"^\s*(no|cancela|cancelar|descarta)\b", re.IGNORECASE)
+
+
+async def _continuar_importacion(update: Update, chat_id: int, texto_respuesta: str | None = None) -> None:
+    """Avanza el estado de una importacion pendiente: aplica la respuesta del
+    usuario (si corresponde), pregunta lo siguiente que falte, o muestra el
+    resumen final para confirmar."""
+    estado = _chat_importacion[chat_id]
+
+    if estado["preguntando"] and estado["preguntando"][0] != "confirmacion" and texto_respuesta is not None:
+        error = recipe_pipeline.aplicar_respuesta(estado, texto_respuesta)
+        if error:
+            await update.message.reply_text(error)
+            return
+
+    if estado["preguntando"] and estado["preguntando"][0] == "confirmacion":
+        if _PATRON_SI.match(texto_respuesta or ""):
+            mensaje = recipe_pipeline.guardar(estado)
+            del _chat_importacion[chat_id]
+            await update.message.reply_text(f"Listo, guardada. {mensaje}")
+            return
+        if _PATRON_NO.match(texto_respuesta or ""):
+            del _chat_importacion[chat_id]
+            await update.message.reply_text("Ok, no guardé nada. Mandámela de nuevo con las correcciones si querés reintentar.")
+            return
+        await update.message.reply_text('Respondé "sí" para guardar o "no" para descartar.')
+        return
+
+    pregunta = recipe_pipeline.siguiente_pregunta(estado)
+    if pregunta is None:
+        await update.message.reply_text(recipe_pipeline.formatear_resumen(estado))
+    else:
+        await update.message.reply_text(pregunta)
+
+
+async def _iniciar_importacion(update: Update, chat_id: int, texto_crudo: str, metadata: recipe_import.RawExtraction) -> None:
+    if not texto_crudo.strip():
+        advertencias = "\n".join(f"- {a}" for a in metadata.advertencias) or "No encontré texto en la fuente."
+        await update.message.reply_text(f"No pude extraer una receta de ahí:\n{advertencias}")
+        return
+
+    await update.message.reply_text("Recibido, estoy analizando la receta...")
+    estado = recipe_pipeline.iniciar_importacion(texto_crudo, metadata)
+    _chat_importacion[chat_id] = estado
+    await _continuar_importacion(update, chat_id)
+
+
+async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    archivo = await update.message.photo[-1].get_file()
+    contenido = bytes(await archivo.download_as_bytearray())
+    try:
+        texto = recipe_import.extraer_de_imagen(contenido)
+    except Exception as exc:  # noqa: BLE001
+        await update.message.reply_text(f"No pude leer la imagen (OCR falló: {exc}). Probá con una foto más nítida.")
+        return
+    metadata = recipe_import.RawExtraction(texto_crudo=texto, fuente_tipo="imagen", exitosa=bool(texto.strip()))
+    if not texto.strip():
+        metadata.advertencias.append("El OCR no encontró texto legible en la imagen.")
+    await _iniciar_importacion(update, chat_id, texto, metadata)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
@@ -87,8 +160,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
+    texto = update.message.text
+
+    if chat_id in _chat_importacion:
+        await _continuar_importacion(update, chat_id, texto)
+        return
+
+    url_match = _PATRON_URL.search(texto)
+    if url_match:
+        metadata = recipe_import.extraer_de_url(url_match.group(0))
+        await _iniciar_importacion(update, chat_id, metadata.texto_crudo, metadata)
+        return
+
+    prefijo_match = _PREFIJO_RECETA.match(texto)
+    if prefijo_match:
+        texto_receta = prefijo_match.group(1)
+        metadata = recipe_import.RawExtraction(texto_crudo=texto_receta, fuente_tipo="texto_pegado")
+        await _iniciar_importacion(update, chat_id, texto_receta, metadata)
+        return
+
     ultima_lista = _chat_ultima_lista.get(chat_id, {})
-    pregunta = _expandir_respuesta_numerica(update.message.text, ultima_lista)
+    pregunta = _expandir_respuesta_numerica(texto, ultima_lista)
 
     graph = _get_graph()
     messages = _chat_messages.setdefault(chat_id, [])
@@ -110,6 +202,7 @@ def main() -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
     app.run_polling()
 
