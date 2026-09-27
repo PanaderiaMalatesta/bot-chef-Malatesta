@@ -105,7 +105,12 @@ _UNIDADES_VOLUMEN_ML = {"ml", "mililitro", "mililitros", "cc"}
 _UNIDADES_VOLUMEN_L = {"l", "lt", "litro", "litros"}
 _UNIDADES_CUCHARA = {"cdta", "cucharadita", "cucharaditas", "cdas", "cucharada", "cucharadas", "cda"}
 _UNIDADES_TAZA = {"taza", "tazas", "cup", "cups"}
-_UNIDADES_PIEZA = {"unidad", "unidades", "u", "pieza", "piezas"}
+_UNIDADES_PIEZA = {
+    "unidad", "unidades", "u", "pieza", "piezas",
+    # "gotas" es una medida real por si sola (ej. colorantes, esencias) -- no
+    # tiene sentido pedir su equivalencia en gramos, se cuenta como unidad.
+    "gota", "gotas",
+}
 
 
 @dataclass
@@ -199,6 +204,50 @@ def resolver_insumo(nombre_libre: str, precios: pd.DataFrame) -> tuple[str | Non
     if puntajes and puntajes[0][0] >= 0.72:
         return puntajes[0][1], False, []
     return None, False, []
+
+
+class _SinonimoInsumo(BaseModel):
+    nombre_buscado: str = Field(description="El nombre del ingrediente tal cual se buscó, copiado exactamente.")
+    insumo_equivalente: str | None = Field(
+        default=None,
+        description="El nombre EXACTO (copiado tal cual) de un insumo de la lista de insumos existentes que es "
+        "el MISMO producto (sinónimo, nombre de marca que se volvió genérico, o forma alternativa de decirlo) "
+        "-- NO un insumo relacionado o parecido, tiene que ser literalmente lo mismo. None si no hay ninguno.",
+    )
+
+
+class _ResolucionSinonimos(BaseModel):
+    resultados: list[_SinonimoInsumo] = Field(description="Un resultado por cada nombre de la lista a resolver, en el mismo orden.")
+
+
+def resolver_sinonimos(nombres_sin_match: list[str], lista_insumos: list[str]) -> dict[str, str | None]:
+    """Para ingredientes que _resolver_insumo no pudo emparejar por texto (ej.
+    'fécula de maíz' vs. el insumo existente 'maicena' -- son sinónimos, pero
+    no comparten ninguna palabra ni son parecidos como texto), pregunta al
+    LLM si alguno es el mismo producto que algo que ya existe en el
+    catálogo. A diferencia de resolver_insumo (matching de texto, Python
+    puro), esto SI necesita al LLM porque requiere conocimiento del mundo
+    (que 'maicena' es una marca de fécula de maíz), no comparación de
+    strings. Nunca decide solo -- el resultado se usa para PREGUNTAR
+    ('¿es lo mismo que maicena?'), nunca para reemplazar sin confirmar."""
+    if not nombres_sin_match:
+        return {}
+    llm = ChatCohere(model="command-a-03-2025", temperature=0, cohere_api_key=os.environ["COHERE_API_KEY"])
+    extractor = llm.with_structured_output(_ResolucionSinonimos)
+    prompt = (
+        "Para cada ingrediente de la LISTA A, decime si es exactamente EL MISMO producto "
+        "(sinónimo, nombre de marca que se volvió genérico, o forma alternativa de decirlo en "
+        "español latinoamericano) que alguno de los insumos de la LISTA B. Ejemplos reales: "
+        "'fécula de maíz' es lo mismo que 'maicena' (maicena es una marca que se volvió el "
+        "nombre genérico); 'azúcar glass'/'azúcar impalpable' es lo mismo que 'azúcar flor'. "
+        "Si tenés alguna duda, o el parecido es solo de categoría (ej. dos tipos distintos de "
+        "chocolate) y no el MISMO producto, respondé None -- es mejor no encontrar nada que "
+        "encontrar algo incorrecto.\n\n"
+        f"LISTA A (a resolver): {nombres_sin_match}\n"
+        f"LISTA B (insumos existentes): {lista_insumos}"
+    )
+    resultado = extractor.invoke(prompt)
+    return {r.nombre_buscado: r.insumo_equivalente for r in resultado.resultados}
 
 
 def estandarizar(receta: RecetaExtraida) -> RecetaEstandarizada:

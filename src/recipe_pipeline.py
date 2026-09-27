@@ -44,6 +44,28 @@ def _buscar_insumo_mencionado(texto: str) -> str | None:
     return None
 
 
+def _resolver_sinonimos_pendientes(receta: "rs.RecetaEstandarizada") -> None:
+    """Para ingredientes que quedaron sin insumo resuelto (no matchean por
+    texto a nada del catalogo), pregunta al LLM si son sinonimos de algo que
+    YA existe (ej. 'fecula de maiz' == 'maicena') y, si encuentra un
+    candidato, los marca como ambiguos -- reusa la pregunta de confirmacion
+    "¿es lo mismo que X?" que ya existe para casos ambiguos, en vez de
+    asumir directamente que es un insumo nuevo."""
+    pendientes = [
+        ing for ing in receta.ingredientes
+        if not ing.insumo_resuelto and not ing.ambiguo and ing.cantidad_lote is not None and ing.nombre_original
+    ]
+    if not pendientes:
+        return
+    precios = t._load_precios_insumos()
+    resultados = rs.resolver_sinonimos([ing.nombre_original for ing in pendientes], list(precios["insumo"]))
+    for ing in pendientes:
+        candidato = resultados.get(ing.nombre_original)
+        if candidato and candidato in set(precios["insumo"]):
+            ing.ambiguo = True
+            ing.candidatos_ambiguos = [candidato]
+
+
 def iniciar_importacion(texto_crudo: str, metadata: recipe_import.RawExtraction) -> dict:
     """Corre extraccion LLM + estandarizacion Python y arma el estado inicial
     de una importacion. No guarda nada todavia."""
@@ -55,6 +77,7 @@ def iniciar_importacion(texto_crudo: str, metadata: recipe_import.RawExtraction)
 
     receta_extraida = rs.estructurar_desde_texto(texto_crudo, contexto)
     receta_estandarizada = rs.estandarizar(receta_extraida)
+    _resolver_sinonimos_pendientes(receta_estandarizada)
 
     return {
         "receta": receta_estandarizada,
