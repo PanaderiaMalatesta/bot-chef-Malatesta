@@ -153,16 +153,16 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
 
     if tipo == "ambiguo":
         ing = receta.ingredientes[idx]
-        m = re.match(r"\s*(\d+)", texto)
+        m = re.search(r"(\d+)", texto)
         if not m:
-            return "Respondé con el número de la opción."
+            return f"Sobre \"{ing.texto_original}\": respondé con el número de la opción."
         n = int(m.group(1))
         if 1 <= n <= len(ing.candidatos_ambiguos):
             ing.insumo_resuelto = ing.candidatos_ambiguos[n - 1]
         elif n == len(ing.candidatos_ambiguos) + 1:
             ing.insumo_resuelto = None
         else:
-            return "Ese número no está en la lista, probá de nuevo."
+            return f"Sobre \"{ing.texto_original}\": ese número no está en la lista, probá de nuevo."
         ing.ambiguo = False
         # La primera conversion (en estandarizar()) se hizo sin saber todavia
         # cual insumo era -- reintentarla ahora puede encontrar una
@@ -178,7 +178,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
         ing = receta.ingredientes[idx]
         precio, unidad = _parsear_precio(texto)
         if precio is None:
-            return "No entendí el precio. Mandalo como \"$5.000 el kg\" o \"3000 el litro\"."
+            return f"Sobre \"{ing.texto_original}\": no entendí el precio. Mandalo como \"$5.000 el kg\" o \"3000 el litro\"."
         clave = slug_insumo(ing.nombre_original)
         estado["insumos_nuevos"][clave] = (precio, unidad)
         ing.insumo_resuelto = clave
@@ -186,29 +186,29 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
 
     if tipo == "unidad":
         ing = receta.ingredientes[idx]
-        m = re.match(r"\s*([\d.,]+)\s*([a-zA-Záéíóú]+)", texto)
+        m = re.search(r"([\d.,]+)\s*([a-zA-Záéíóú]+)", texto)
         if not m:
-            return "Mandala como \"cantidad unidad\", ej. \"200 g\" o \"2 unidades\"."
+            return f"Sobre \"{ing.texto_original}\": mandala como \"cantidad unidad\", ej. \"200 g\" o \"2 unidades\"."
         cantidad = float(m.group(1).replace(",", "."))
         cantidad_conv, unidad_conv = rs._convertir_a_g_o_ml(ing.insumo_resuelto, cantidad, m.group(2), receta.conversiones_notas)
         if cantidad_conv is None:
-            return "No reconocí esa unidad -- probá con g, kg, mL, L o unidad."
+            return f"Sobre \"{ing.texto_original}\": no reconocí esa unidad -- probá con g, kg, mL, L o unidad."
         ing.cantidad_lote = cantidad_conv
         ing.unidad_estandar = unidad_conv
         return None
 
     if tipo == "peso_real":
         ing = receta.ingredientes[idx]
-        m = re.match(r"\s*([\d.,]+)", texto)
+        m = re.search(r"([\d.,]+)", texto)
         if not m:
-            return "Decime el peso en gramos, ej. \"4 g\" o solo \"4\"."
+            return f"Sobre \"{ing.texto_original}\": decime el peso en gramos, ej. \"4 g\" o solo \"4\"."
         ing.cantidad_lote = float(m.group(1).replace(",", "."))
         ing.unidad_estandar = "g"
         receta.conversiones_notas.append(f"{ing.insumo_resuelto}: peso real confirmado por Raúl -> {ing.cantidad_lote:g} g (reemplaza la conversión de volumen de arriba).")
         return None
 
     if tipo == "rendimiento":
-        m = re.match(r"\s*([\d.,]+)", texto)
+        m = re.search(r"([\d.,]+)", texto)
         if not m:
             return "Decime solo el número, ej. \"24\"."
         receta.rendimiento = float(m.group(1).replace(",", "."))

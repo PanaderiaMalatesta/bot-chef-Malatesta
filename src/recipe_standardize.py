@@ -74,7 +74,12 @@ def estructurar_desde_texto(texto_crudo: str, contexto: str = "") -> RecetaExtra
         "si no dice el rendimiento, la temperatura, o la cantidad de un ingrediente, dejalo en None.\n"
         "2. No conviertas unidades ni hagas ningún cálculo -- copiá los números y unidades tal "
         "cual aparecen en la fuente, eso se hace en un paso aparte.\n"
-        "3. Los ingredientes van en el orden en que aparecen.\n\n"
+        "3. Los ingredientes van en el orden en que aparecen.\n"
+        "4. Si UN MISMO ingrediente tiene dos medidas (ej. \"3/4 taza de azúcar (175g)\" o "
+        "\"1 cucharada de maicena (15g)\"), SIEMPRE elegí la medida en gramos/mililitros/kg/L "
+        "para `cantidad`/`unidad` (es la precisa), NUNCA la de taza/cucharada -- pero dejá el "
+        "texto COMPLETO (con ambas medidas) en `texto_original`. Ejemplo: para "
+        "\"3/4 taza de azúcar (175g)\" -> cantidad=175, unidad=\"g\" (no 0.75/\"taza\").\n\n"
         f"{contexto}\n\nTEXTO FUENTE:\n{texto_crudo[:12000]}"
     )
     return extractor.invoke(prompt)
