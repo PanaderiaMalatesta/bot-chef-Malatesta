@@ -188,6 +188,21 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
         ing = receta.ingredientes[idx]
         m = re.search(r"([\d.,]+)\s*([a-zA-Záéíóú]+)", texto)
         if not m:
+            # El usuario puede estar aclarando la UNIDAD sin repetir el numero
+            # (ej. "gotas tambien es una unidad, guardalo asi") -- si nombra
+            # algo contable equivalente a "unidad", reusar el numero que ya
+            # estaba en el texto original de la fuente en vez de pedirlo de
+            # nuevo (ya lo tenemos, no hace falta que el usuario lo retipee).
+            if re.search(r"unidad|gota|pizca|hoja|diente|rama", texto, re.IGNORECASE):
+                m_original = re.search(r"([\d.,]+)", ing.texto_original)
+                if m_original:
+                    cantidad = float(m_original.group(1).replace(",", "."))
+                    ing.cantidad_lote = cantidad
+                    ing.unidad_estandar = "unidad"
+                    receta.conversiones_notas.append(
+                        f"\"{ing.texto_original}\": Raúl aclaró que se mide por unidad -> {cantidad:g} unidad (cantidad tomada del texto original)."
+                    )
+                    return None
             return f"Sobre \"{ing.texto_original}\": mandala como \"cantidad unidad\", ej. \"200 g\" o \"2 unidades\"."
         cantidad = float(m.group(1).replace(",", "."))
         cantidad_conv, unidad_conv = rs._convertir_a_g_o_ml(ing.insumo_resuelto, cantidad, m.group(2), receta.conversiones_notas)
