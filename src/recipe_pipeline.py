@@ -288,10 +288,20 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
 
         precio, unidad = _parsear_precio(texto)
         if precio is None:
-            return (
-                f"Sobre \"{ing.texto_original}\": no entendí el precio. Mándalo como \"$5.000 el kg\" o "
-                "\"20 g cuestan 1000\" (si ya existe con otro nombre en el catálogo, dime cuál)."
-            )
+            # Un numero "pelado" sin unidad (ej. "1 peso", "$1") es ambiguo en
+            # general ($/kg? $/L?) salvo que el ingrediente YA se sepa que se
+            # cuenta por unidad (ej. gotas) -- ahi si es seguro asumir que el
+            # precio tambien es por unidad, sin necesidad de que Raul lo
+            # aclare (no hay otra unidad posible para algo que se cuenta).
+            m_pelado = re.match(r"^\s*(?:ponle|pon|dale|digamos)?\s*\$?\s*([\d.,]+)\s*(?:pesos?)?\s*\.?\s*$", texto, re.IGNORECASE)
+            if m_pelado and ing.unidad_estandar == "unidad":
+                precio = _num_precio(m_pelado.group(1))
+                unidad = "unidad"
+            if precio is None:
+                return (
+                    f"Sobre \"{ing.texto_original}\": no entendí el precio. Mándalo como \"$5.000 el kg\" o "
+                    "\"20 g cuestan 1000\" (si ya existe con otro nombre en el catálogo, dime cuál)."
+                )
         clave = slug_insumo(ing.nombre_original)
         estado["insumos_nuevos"][clave] = (precio, unidad)
         ing.insumo_resuelto = clave
