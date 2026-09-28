@@ -133,6 +133,7 @@ async def _iniciar_importacion(update: Update, chat_id: int, texto_crudo: str, m
     await update.message.reply_text("Recibido, estoy analizando la receta...")
     estado = recipe_pipeline.iniciar_importacion(texto_crudo, metadata)
     _chat_importacion[chat_id] = estado
+    await update.message.reply_text(recipe_pipeline.formatear_extraccion(estado))
     await _continuar_importacion(update, chat_id)
 
 

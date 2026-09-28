@@ -453,6 +453,44 @@ def costear(estado: dict) -> dict:
     }
 
 
+def formatear_extraccion(estado: dict) -> str:
+    """Resumen de lo que se extrajo de la fuente, ANTES de arrancar las
+    preguntas de validacion (precios de insumos nuevos, ambiguedades,
+    unidades). Raul necesita ver que se leyo bien la receta antes de
+    invertir tiempo respondiendo preguntas sobre datos que ni siquiera vio."""
+    receta = estado["receta"]
+    original = receta.original
+
+    partes = ["📥 Esto encontré en la fuente:"]
+    if original.nombre:
+        partes.append(f"Nombre: {original.nombre}")
+    if estado["metadata"].url:
+        partes.append(f"Fuente: {estado['metadata'].url}")
+    if estado["metadata"].autor:
+        partes.append(f"Autor: {estado['metadata'].autor}")
+    partes.append("Ingredientes (tal cual la fuente):")
+    for ing in receta.ingredientes:
+        partes.append(f"  - {ing.texto_original}")
+    if original.pasos:
+        partes.append("Procedimiento (tal cual la fuente):")
+        for i, paso in enumerate(original.pasos, 1):
+            partes.append(f"  {i}. {paso}")
+    if original.tiempo_preparacion_min:
+        partes.append(f"Tiempo de preparación: {original.tiempo_preparacion_min:g} min")
+    if original.tiempo_coccion_min:
+        partes.append(f"Tiempo de cocción: {original.tiempo_coccion_min:g} min")
+    if original.temperatura:
+        partes.append(f"Temperatura: {original.temperatura}")
+
+    if estado["metadata"].advertencias:
+        partes.append("\n⚠️ Advertencias de la extracción:")
+        for adv in estado["metadata"].advertencias:
+            partes.append(f"  - {adv}")
+
+    partes.append("\nAhora te pregunto lo que falte para poder costearla.")
+    return "\n".join(partes)
+
+
 def formatear_resumen(estado: dict) -> str:
     receta = estado["receta"]
     original = receta.original
