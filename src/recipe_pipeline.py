@@ -121,6 +121,17 @@ _PATRON_CANTIDAD_CUESTA_PRECIO = re.compile(
     r"([\d.,]+)\s*" + _UNIDAD_PRECIO_TXT + r"\s*(?:cuest\w*|vale[n]?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)",
     re.IGNORECASE,
 )
+# Fallback para cuando el insumo YA se sabe que se cuenta por "unidad" (ver
+# uso en aplicar_respuesta): ahi la persona no dice la palabra "unidad", dice
+# el nombre propio del insumo (ej. "1 huevo cuesta 211", "cuesta 211" a
+# secas) -- exigir un verbo de costo (sin unidad) alcanza porque ya no hay
+# ambiguedad de kg/L posible.
+_PATRON_PRECIO_PELADO = re.compile(
+    r"^\s*(?:ponle|pon|dale|digamos)?\s*\$?\s*([\d.,]+)\s*(?:pesos?)?\s*\.?\s*$", re.IGNORECASE,
+)
+_PATRON_PRECIO_PELADO_CON_VERBO = re.compile(
+    r"(?:cuest\w*|vale[n]?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)\s*(?:pesos?)?\s*\.?\s*$", re.IGNORECASE,
+)
 
 
 def _normalizar_unidad_precio(unidad_txt: str) -> tuple[str, float] | tuple[None, None]:
@@ -301,7 +312,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
             # cuenta por unidad (ej. gotas) -- ahi si es seguro asumir que el
             # precio tambien es por unidad, sin necesidad de que Raul lo
             # aclare (no hay otra unidad posible para algo que se cuenta).
-            m_pelado = re.match(r"^\s*(?:ponle|pon|dale|digamos)?\s*\$?\s*([\d.,]+)\s*(?:pesos?)?\s*\.?\s*$", texto, re.IGNORECASE)
+            m_pelado = _PATRON_PRECIO_PELADO.match(texto) or _PATRON_PRECIO_PELADO_CON_VERBO.search(texto)
             if m_pelado and ing.unidad_estandar == "unidad":
                 precio = _num_precio(m_pelado.group(1))
                 unidad = "unidad"
