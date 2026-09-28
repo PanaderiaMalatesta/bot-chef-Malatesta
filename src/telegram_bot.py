@@ -89,7 +89,15 @@ _chat_importacion: dict[int, dict] = {}
 _PATRON_URL = re.compile(r"https?://\S+")
 _PREFIJO_RECETA = re.compile(r"^\s*receta\s*:\s*(.*)$", re.IGNORECASE | re.DOTALL)
 _PATRON_SI = re.compile(r"^\s*(s[ií]|dale|ok|confirmo|correcto)\b", re.IGNORECASE)
-_PATRON_NO = re.compile(r"^\s*(no|cancela|cancelar|descarta)\b", re.IGNORECASE)
+# Para cancelar una importacion en CUALQUIER pregunta pendiente, no solo en
+# la confirmacion final -- exige que el mensaje entero sea uno de estos
+# (no solo que empiece con la palabra) porque "para" es una palabra comun
+# que podria aparecer al inicio de una respuesta legitima en otro contexto;
+# como comando suelto para cancelar, en cambio, no hay ambiguedad posible.
+_PATRON_CANCELAR = re.compile(
+    r"^\s*(no|cancela\w*|descarta\w*|olv[ií]da(?:lo|la)?|detente|para|basta|d[eé]jalo)\s*[.!¡]*\s*$",
+    re.IGNORECASE,
+)
 
 
 async def _continuar_importacion(update: Update, chat_id: int, texto_respuesta: str | None = None) -> None:
@@ -97,6 +105,11 @@ async def _continuar_importacion(update: Update, chat_id: int, texto_respuesta: 
     usuario (si corresponde), pregunta lo siguiente que falte, o muestra el
     resumen final para confirmar."""
     estado = _chat_importacion[chat_id]
+
+    if estado["preguntando"] and texto_respuesta is not None and _PATRON_CANCELAR.match(texto_respuesta):
+        del _chat_importacion[chat_id]
+        await update.message.reply_text("Ok, cancelé la importación. Mándamela de nuevo si quieres reintentar.")
+        return
 
     if estado["preguntando"] and estado["preguntando"][0] != "confirmacion" and texto_respuesta is not None:
         error = recipe_pipeline.aplicar_respuesta(estado, texto_respuesta)
@@ -109,10 +122,6 @@ async def _continuar_importacion(update: Update, chat_id: int, texto_respuesta: 
             mensaje = recipe_pipeline.guardar(estado)
             del _chat_importacion[chat_id]
             await update.message.reply_text(f"Listo, guardada. {mensaje}")
-            return
-        if _PATRON_NO.match(texto_respuesta or ""):
-            del _chat_importacion[chat_id]
-            await update.message.reply_text("Ok, no guardé nada. Mándamela de nuevo con las correcciones si quieres reintentar.")
             return
         await update.message.reply_text('Responde "sí" para guardar o "no" para descartar.')
         return
