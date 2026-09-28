@@ -4,4 +4,5 @@ __pycache__/
 .venv/
 venv/
 data/index_recetas/
+data/.yt_dlp_cookies.txt
 .claude/settings.local.json

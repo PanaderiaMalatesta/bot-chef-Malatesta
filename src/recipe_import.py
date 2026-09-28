@@ -14,14 +14,19 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlparse
 
 import pytesseract
 import requests
 from bs4 import BeautifulSoup
 from PIL import Image
+
+from .paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -30,18 +35,41 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
-_DOMINIOS_NO_SOPORTADOS = {
-    "instagram.com": "Instagram",
-    "www.instagram.com": "Instagram",
-    "facebook.com": "Facebook",
-    "www.facebook.com": "Facebook",
-    "m.facebook.com": "Facebook",
-    "fb.watch": "Facebook",
-}
-
 _DOMINIOS_YOUTUBE = {"youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"}
 _DOMINIOS_TIKTOK = {"tiktok.com", "www.tiktok.com", "vm.tiktok.com"}
+_DOMINIOS_INSTAGRAM = {"instagram.com", "www.instagram.com"}
+_DOMINIOS_FACEBOOK = {"facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"}
 _DOMINIOS_PINTEREST = {"pinterest.com", "www.pinterest.com", "pin.it", "cl.pinterest.com"}
+
+_COOKIES_ENV = "YTDLP_COOKIES"
+_cookiefile_cache: str | None = None
+_cookiefile_resuelto = False
+
+
+def _cookiefile() -> str | None:
+    """Vuelca la env var YTDLP_COOKIES (contenido de un cookies.txt formato
+    Netscape, exportado de una sesion logueada real) a un archivo, una sola
+    vez por proceso, para pasarselo a yt-dlp. YouTube/TikTok/Instagram/Facebook
+    bloquean como bot los pedidos sin sesion desde IPs de datacenter como las
+    de Railway -- sin esta env var, yt-dlp sigue andando pero falla mucho mas
+    seguido en estos sitios. Un solo cookies.txt combinado (cookies de los
+    cuatro dominios en el mismo archivo) sirve para todos, yt-dlp usa solo
+    las que matchean el dominio de cada pedido."""
+    global _cookiefile_cache, _cookiefile_resuelto
+    if _cookiefile_resuelto:
+        return _cookiefile_cache
+    _cookiefile_resuelto = True
+    contenido = os.environ.get(_COOKIES_ENV)
+    if not contenido:
+        return None
+    try:
+        ruta = DATA_DIR / ".yt_dlp_cookies.txt"
+        ruta.write_text(contenido, encoding="utf-8")
+    except OSError:
+        ruta = Path(tempfile.gettempdir()) / "yt_dlp_cookies.txt"
+        ruta.write_text(contenido, encoding="utf-8")
+    _cookiefile_cache = str(ruta)
+    return _cookiefile_cache
 
 
 @dataclass
@@ -60,23 +88,14 @@ def extraer_de_url(url: str) -> RawExtraction:
     extractor que corresponda."""
     dominio = (urlparse(url).netloc or "").lower()
 
-    if dominio in _DOMINIOS_NO_SOPORTADOS:
-        nombre = _DOMINIOS_NO_SOPORTADOS[dominio]
-        return RawExtraction(
-            url=url,
-            fuente_tipo=nombre.lower(),
-            exitosa=False,
-            advertencias=[
-                f"{nombre} no está soportado automáticamente todavía (bloquea el acceso sin "
-                "login desde afuera). Pega el texto de la publicación (con el prefijo "
-                "'Receta:') o mándame una captura de pantalla y lo proceso igual."
-            ],
-        )
-
     if dominio in _DOMINIOS_YOUTUBE:
         return _extraer_de_video(url, "youtube")
     if dominio in _DOMINIOS_TIKTOK:
         return _extraer_de_video(url, "tiktok")
+    if dominio in _DOMINIOS_INSTAGRAM:
+        return _extraer_de_video(url, "instagram")
+    if dominio in _DOMINIOS_FACEBOOK:
+        return _extraer_de_video(url, "facebook")
     if dominio in _DOMINIOS_PINTEREST:
         return _extraer_de_pinterest(url)
 
@@ -100,6 +119,9 @@ def _extraer_de_video(url: str, fuente_tipo: str) -> RawExtraction:
         "quiet": True,
         "no_warnings": True,
     }
+    cookiefile = _cookiefile()
+    if cookiefile:
+        opciones["cookiefile"] = cookiefile
     try:
         with yt_dlp.YoutubeDL(opciones) as ydl:
             info = ydl.extract_info(url, download=False)
