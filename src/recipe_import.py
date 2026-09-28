@@ -83,6 +83,98 @@ class RawExtraction:
     exitosa: bool = True
 
 
+_APIFY_TOKEN_ENV = "APIFY_API_TOKEN"
+
+# Instagram/Facebook bloquean como bot cualquier pedido sin sesion desde una
+# IP de datacenter como la de Railway -- no hay forma confiable de leerlos
+# con requests/yt-dlp plano. Estos actors de Apify (infraestructura de
+# proxies propia, sin necesidad de cookies ni login nuestro) resuelven eso.
+# TikTok tambien pasa por aca cuando hay token configurado (si no, cae a
+# yt-dlp via _extraer_de_video, que para TikTok suele andar bien igual).
+_APIFY_ACTORES = {
+    "tiktok": "clockworks~tiktok-video-scraper",
+    "instagram": "apify~instagram-reel-scraper",
+    "facebook": "apify~facebook-posts-scraper",
+}
+
+
+def _apify_input(url: str, fuente_tipo: str) -> dict:
+    if fuente_tipo == "tiktok":
+        return {"postURLs": [url]}
+    if fuente_tipo == "instagram":
+        return {"username": [url]}
+    return {"startUrls": [{"url": url}]}  # facebook
+
+
+def _texto_desde_apify_item(item: dict, fuente_tipo: str) -> tuple[str, str | None, list[str]]:
+    """Arma (texto_crudo, autor, advertencias) a partir de un item del
+    dataset de Apify. Los nombres de campo difieren por actor -- nunca se
+    inventa un valor si el campo esperado no esta presente en la respuesta
+    real (los actors de terceros a veces cambian nombres de campo sin
+    avisar)."""
+    if fuente_tipo == "tiktok":
+        texto = item.get("text") or ""
+        autor_meta = item.get("authorMeta")
+        autor = autor_meta.get("name") if isinstance(autor_meta, dict) else None
+    elif fuente_tipo == "instagram":
+        partes = [item.get("caption") or "", item.get("transcript") or ""]
+        texto = "\n\n".join(p for p in partes if p)
+        autor = item.get("ownerUsername")
+    else:  # facebook -- el campo "message" es un dict {"text": ..., "ranges": []},
+        # no un string plano (verificado contra la API real).
+        mensaje = item.get("message")
+        texto = mensaje.get("text", "") if isinstance(mensaje, dict) else (mensaje or "")
+        autor = item.get("pageName") or item.get("authorName")
+
+    advertencias = []
+    if not texto.strip():
+        advertencias.append(
+            "No encontré texto en esta publicación -- puede que la receta esté solo en la "
+            "imagen/video sin caption. Pega el texto o mándame una captura."
+        )
+    return texto, autor, advertencias
+
+
+def _extraer_via_apify(url: str, fuente_tipo: str) -> RawExtraction:
+    token = os.environ.get(_APIFY_TOKEN_ENV)
+    if not token:
+        return RawExtraction(
+            url=url, fuente_tipo=fuente_tipo, exitosa=False,
+            advertencias=[
+                "Todavía no tengo configurado el acceso para leer este link automáticamente. "
+                "Pega el texto de la publicación o mándame una captura y lo proceso igual."
+            ],
+        )
+
+    actor_id = _APIFY_ACTORES[fuente_tipo]
+    try:
+        resp = requests.post(
+            f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
+            params={"token": token},
+            json=_apify_input(url, fuente_tipo),
+            timeout=90,
+        )
+        resp.raise_for_status()
+        items = resp.json()
+    except Exception as exc:  # noqa: BLE001
+        return RawExtraction(
+            url=url, fuente_tipo=fuente_tipo, exitosa=False,
+            advertencias=[f"No pude acceder a este link ({exc}). Pega el texto o una captura."],
+        )
+
+    if not items:
+        return RawExtraction(
+            url=url, fuente_tipo=fuente_tipo, exitosa=False,
+            advertencias=["No encontré nada en ese link -- ¿es público? Pega el texto o una captura."],
+        )
+
+    texto_crudo, autor, advertencias = _texto_desde_apify_item(items[0], fuente_tipo)
+    return RawExtraction(
+        texto_crudo=texto_crudo, autor=autor, url=url, fuente_tipo=fuente_tipo,
+        advertencias=advertencias, exitosa=bool(texto_crudo.strip()),
+    )
+
+
 def extraer_de_url(url: str) -> RawExtraction:
     """Punto de entrada principal: detecta la fuente por dominio y enruta al
     extractor que corresponda."""
@@ -91,11 +183,13 @@ def extraer_de_url(url: str) -> RawExtraction:
     if dominio in _DOMINIOS_YOUTUBE:
         return _extraer_de_video(url, "youtube")
     if dominio in _DOMINIOS_TIKTOK:
+        if os.environ.get(_APIFY_TOKEN_ENV):
+            return _extraer_via_apify(url, "tiktok")
         return _extraer_de_video(url, "tiktok")
     if dominio in _DOMINIOS_INSTAGRAM:
-        return _extraer_de_video(url, "instagram")
+        return _extraer_via_apify(url, "instagram")
     if dominio in _DOMINIOS_FACEBOOK:
-        return _extraer_de_video(url, "facebook")
+        return _extraer_via_apify(url, "facebook")
     if dominio in _DOMINIOS_PINTEREST:
         return _extraer_de_pinterest(url)
 
