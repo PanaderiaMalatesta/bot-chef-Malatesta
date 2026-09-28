@@ -121,6 +121,17 @@ _PATRON_CANTIDAD_CUESTA_PRECIO = re.compile(
     r"([\d.,]+)\s*" + _UNIDAD_PRECIO_TXT + r"\s*(?:cuest\w*|vale[n]?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)",
     re.IGNORECASE,
 )
+# "el kg cuesta 580" / "la unidad vale 100" -- unidad SIN cantidad explicita
+# antes del verbo de costo (a diferencia de _PATRON_CANTIDAD_CUESTA_PRECIO,
+# que exige un numero ahi, ej. "20 g cuestan 1000"). "el"/"la" implica
+# cantidad=1 de esa unidad -- encontrado en produccion: "el kg de harina
+# cuesta $580" no calzaba con ningun patron existente. El ".{0,25}?" tolera
+# un nombre de insumo entre la unidad y el verbo (ej. "de harina") sin
+# comerse de mas -- acotado y no goloso para no cruzar a otra frase.
+_PATRON_UNIDAD_CUESTA_PRECIO = re.compile(
+    r"(?:el|la)\s*" + _UNIDAD_PRECIO_TXT + r".{0,25}?\s*(?:cuest\w*|vale[n]?|sale[n]?|est[aá]n?)\s*\$?\s*([\d.,]+)",
+    re.IGNORECASE,
+)
 # Fallback para cuando el insumo YA se sabe que se cuenta por "unidad" (ver
 # uso en aplicar_respuesta): ahi la persona no dice la palabra "unidad", dice
 # el nombre propio del insumo (ej. "1 huevo cuesta 211", "cuesta 211" a
@@ -184,6 +195,14 @@ def _parsear_precio(texto: str) -> tuple[float, str] | tuple[None, None]:
     m = _PATRON_PRECIO_UNIDAD_PRIMERO.search(texto)
     if m:
         precio_txt, unidad_txt = m.groups()
+        precio = _num_precio(precio_txt)
+        unidad_final, factor = _normalizar_unidad_precio(unidad_txt)
+        if unidad_final and precio is not None:
+            return precio * factor, unidad_final
+
+    m = _PATRON_UNIDAD_CUESTA_PRECIO.search(texto)
+    if m:
+        unidad_txt, precio_txt = m.groups()
         precio = _num_precio(precio_txt)
         unidad_final, factor = _normalizar_unidad_precio(unidad_txt)
         if unidad_final and precio is not None:
@@ -317,6 +336,21 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
                 precio = _num_precio(m_pelado.group(1))
                 unidad = "unidad"
             if precio is None:
+                # Ultimo intento antes de rendirse: capaz Raul esta nombrando
+                # un insumo que YA existe pero con un nombre distinto al del
+                # catalogo (ej. "harina corriente" para el insumo
+                # "harina_0000") -- a diferencia del bloque de arriba, esto
+                # NO requiere una frase gatillo como "ya existe" porque el
+                # match es por SINONIMO (necesita al LLM, ver
+                # resolver_sinonimos), no por substring literal. Igual que
+                # ese, nunca decide solo: marca ambiguo y pregunta, no
+                # reemplaza directo.
+                precios_actuales = t._load_precios_insumos()
+                candidato = rs.resolver_sinonimos([texto.strip()], list(precios_actuales["insumo"])).get(texto.strip())
+                if candidato and candidato in set(precios_actuales["insumo"]):
+                    ing.ambiguo = True
+                    ing.candidatos_ambiguos = [candidato]
+                    return None
                 return (
                     f"Sobre \"{ing.texto_original}\": no entendí el precio. Mándalo como \"$5.000 el kg\" o "
                     "\"20 g cuestan 1000\" (si ya existe con otro nombre en el catálogo, dime cuál)."
