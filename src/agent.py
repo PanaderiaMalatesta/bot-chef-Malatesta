@@ -145,6 +145,31 @@ Reglas importantes:
   obligatoria: primero confirmado=False, mostrale la pregunta de
   confirmación al usuario tal cual, y solo pasa confirmado=True después de
   que el usuario confirme explícitamente.
+- Si el usuario quiere CALCULAR una masa de pan por porcentaje de panadero
+  (ej. "cuánta harina y agua necesito para...", "calcúlame una masa"), usa
+  herramienta_calcular_masa_pan -- pero reuní los datos preguntando UNA
+  PREGUNTA A LA VEZ, en este orden, antes de llamar a la herramienta:
+  1. Qué método quiere: directo, con prefermento/poolish/biga, o masa madre
+     natural.
+  2. Cuánta masa final quiere hacer (peso_final_g).
+  3. Porcentaje de hidratación de la masa (hidratacion_pct).
+  4. Solo si eligió prefermento o masa madre: qué porcentaje de la harina
+     TOTAL va a venir del prefermento/masa madre
+     (porcentaje_prefermento_pct) y la hidratación de ESE prefermento/masa
+     madre (hidratacion_prefermento_pct, para masa madre suele ser 100).
+  5. Porcentaje de levadura y de sal que quiere usar (levadura_pct,
+     sal_pct) -- si eligió prefermento con levadura, también el % de
+     levadura dentro del prefermento (levadura_prefermento_pct); si eligió
+     masa madre natural, no preguntes por levadura del prefermento, dejala
+     en 0 (la masa madre no lleva levadura comercial).
+  Si el usuario ya dio varios de estos datos de una sola vez en su primer
+  mensaje, no se los vuelvas a preguntar -- segui la secuencia solo para lo
+  que todavía falte. NO llames a herramienta_calcular_masa_pan hasta tener
+  respuesta para TODOS los pasos que apliquen a su método, incluido el paso
+  5 (levadura y sal) -- no lo saltees ni llames a la herramienta con esos
+  valores en 0 asumiendo que no importan, si el usuario todavía no los dio
+  pregúntaselos primero. Recién con todos los datos, llamá a la herramienta
+  y mostrá el resultado tal cual lo devuelve.
 """
 
 
@@ -230,7 +255,7 @@ def herramienta_calcular_masa_pan(
     hidratacion_pct: float,
     levadura_pct: float = 0.0,
     sal_pct: float = 0.0,
-    peso_prefermento_g: float = 0.0,
+    porcentaje_prefermento_pct: float = 0.0,
     hidratacion_prefermento_pct: float = 0.0,
     levadura_prefermento_pct: float = 0.0,
     sal_prefermento_pct: float = 0.0,
@@ -238,21 +263,24 @@ def herramienta_calcular_masa_pan(
     """Calculadora de masa de pan por porcentaje de panadero: dado el peso
     total de masa que se quiere obtener y la hidratación (%), devuelve los
     gramos de harina/agua/levadura/sal. NO toca el catálogo de recetas, es
-    una calculadora aparte (ej. "necesito 3 kg de masa al 65% de hidratación,
-    1.2% de levadura y 2% de sal, ¿cuánta harina y agua uso?").
+    una calculadora aparte. Antes de llamarla, seguí el orden de preguntas
+    que se describe en las reglas de arriba -- no llames a esta herramienta
+    hasta tener todos los datos del método elegido.
 
     Método directo (el más común): solo pasa peso_final_g, hidratacion_pct,
     levadura_pct, sal_pct -- deja los parámetros de prefermento en su default.
 
     Con prefermento (poolish/biga) o masa madre natural: además pasa
-    peso_prefermento_g (cuánto prefermento/masa madre se va a usar) e
+    porcentaje_prefermento_pct (qué % de la harina TOTAL de la masa final va
+    a venir del prefermento/masa madre, ej. 16) e
     hidratacion_prefermento_pct (la hidratación de ESE prefermento, no la de
-    la masa final). levadura_prefermento_pct/sal_prefermento_pct son el % de
-    levadura/sal DENTRO del prefermento, sobre su harina -- para masa madre
-    natural (sin levadura comercial) déjalos en 0."""
+    la masa final -- una masa madre típica es 100). levadura_prefermento_pct/
+    sal_prefermento_pct son el % de levadura/sal DENTRO del prefermento,
+    sobre su harina -- para masa madre natural (sin levadura comercial)
+    déjalos en 0."""
     return calcular_masa_pan(
         peso_final_g, hidratacion_pct, levadura_pct, sal_pct,
-        peso_prefermento_g, hidratacion_prefermento_pct,
+        porcentaje_prefermento_pct, hidratacion_prefermento_pct,
         levadura_prefermento_pct, sal_prefermento_pct,
     )
 
