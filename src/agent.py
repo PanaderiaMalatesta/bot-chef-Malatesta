@@ -18,6 +18,7 @@ from langchain_core.tools import tool
 from langchain_cohere import ChatCohere
 
 from . import tools as t
+from .calc_masa import calcular_masa_pan
 from .ingest import load_index
 
 load_dotenv()
@@ -224,6 +225,39 @@ def herramienta_eliminar_producto(producto: str, variante: str, confirmado: bool
 
 
 @tool
+def herramienta_calcular_masa_pan(
+    peso_final_g: float,
+    hidratacion_pct: float,
+    levadura_pct: float = 0.0,
+    sal_pct: float = 0.0,
+    peso_prefermento_g: float = 0.0,
+    hidratacion_prefermento_pct: float = 0.0,
+    levadura_prefermento_pct: float = 0.0,
+    sal_prefermento_pct: float = 0.0,
+) -> str:
+    """Calculadora de masa de pan por porcentaje de panadero: dado el peso
+    total de masa que se quiere obtener y la hidratación (%), devuelve los
+    gramos de harina/agua/levadura/sal. NO toca el catálogo de recetas, es
+    una calculadora aparte (ej. "necesito 3 kg de masa al 65% de hidratación,
+    1.2% de levadura y 2% de sal, ¿cuánta harina y agua uso?").
+
+    Método directo (el más común): solo pasa peso_final_g, hidratacion_pct,
+    levadura_pct, sal_pct -- deja los parámetros de prefermento en su default.
+
+    Con prefermento (poolish/biga) o masa madre natural: además pasa
+    peso_prefermento_g (cuánto prefermento/masa madre se va a usar) e
+    hidratacion_prefermento_pct (la hidratación de ESE prefermento, no la de
+    la masa final). levadura_prefermento_pct/sal_prefermento_pct son el % de
+    levadura/sal DENTRO del prefermento, sobre su harina -- para masa madre
+    natural (sin levadura comercial) déjalos en 0."""
+    return calcular_masa_pan(
+        peso_final_g, hidratacion_pct, levadura_pct, sal_pct,
+        peso_prefermento_g, hidratacion_prefermento_pct,
+        levadura_prefermento_pct, sal_prefermento_pct,
+    )
+
+
+@tool
 def herramienta_listar_precios_insumos(filtro: str | None = None) -> str:
     """Lista el precio vigente de las materias primas (insumos). Si se da `filtro`,
     solo muestra los que coincidan con ese texto (ej. 'harina')."""
@@ -322,6 +356,7 @@ TOOLS = [
     herramienta_registrar_produccion,
     herramienta_costo_diario,
     herramienta_buscar_en_recetario,
+    herramienta_calcular_masa_pan,
 ]
 
 
