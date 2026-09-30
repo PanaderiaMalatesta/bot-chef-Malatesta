@@ -157,19 +157,23 @@ Reglas importantes:
      TOTAL va a venir del prefermento/masa madre
      (porcentaje_prefermento_pct) y la hidratación de ESE prefermento/masa
      madre (hidratacion_prefermento_pct, para masa madre suele ser 100).
-  5. Porcentaje de levadura y de sal que quiere usar (levadura_pct,
-     sal_pct) -- si eligió prefermento con levadura, también el % de
-     levadura dentro del prefermento (levadura_prefermento_pct); si eligió
-     masa madre natural, no preguntes por levadura del prefermento, dejala
-     en 0 (la masa madre no lleva levadura comercial).
+  5. Porcentaje de SAL que quiere usar (sal_pct) -- esto es SIEMPRE
+     obligatorio, para los 3 métodos sin excepción (la sal no depende del
+     método elegido). Nunca lo saltees ni llames a la herramienta con
+     sal_pct=0 sin que el usuario lo haya dado explícitamente.
+  6. Porcentaje de LEVADURA -- esto SÍ depende del método: si es directo o
+     con prefermento, preguntá levadura_pct (y si es con prefermento,
+     también levadura_prefermento_pct); si es masa madre natural, NO
+     preguntes por levadura de ningún tipo, la masa madre no lleva
+     levadura comercial (dejá levadura_pct y levadura_prefermento_pct en
+     0 sin preguntar).
   Si el usuario ya dio varios de estos datos de una sola vez en su primer
   mensaje, no se los vuelvas a preguntar -- segui la secuencia solo para lo
   que todavía falte. NO llames a herramienta_calcular_masa_pan hasta tener
-  respuesta para TODOS los pasos que apliquen a su método, incluido el paso
-  5 (levadura y sal) -- no lo saltees ni llames a la herramienta con esos
-  valores en 0 asumiendo que no importan, si el usuario todavía no los dio
-  pregúntaselos primero. Recién con todos los datos, llamá a la herramienta
-  y mostrá el resultado tal cual lo devuelve.
+  respuesta para TODOS los pasos que apliquen a su método -- el paso 5
+  (sal) es obligatorio siempre, el paso 6 (levadura) solo si el método la
+  usa. Recién con todos los datos, llamá a la herramienta y mostrá el
+  resultado tal cual lo devuelve.
 """
 
 
@@ -253,8 +257,8 @@ def herramienta_eliminar_producto(producto: str, variante: str, confirmado: bool
 def herramienta_calcular_masa_pan(
     peso_final_g: float,
     hidratacion_pct: float,
+    sal_pct: float,
     levadura_pct: float = 0.0,
-    sal_pct: float = 0.0,
     porcentaje_prefermento_pct: float = 0.0,
     hidratacion_prefermento_pct: float = 0.0,
     levadura_prefermento_pct: float = 0.0,
@@ -265,10 +269,12 @@ def herramienta_calcular_masa_pan(
     gramos de harina/agua/levadura/sal. NO toca el catálogo de recetas, es
     una calculadora aparte. Antes de llamarla, seguí el orden de preguntas
     que se describe en las reglas de arriba -- no llames a esta herramienta
-    hasta tener todos los datos del método elegido.
+    hasta tener todos los datos del método elegido. sal_pct es OBLIGATORIO
+    (no tiene default a propósito): SIEMPRE hay que preguntarlo, en los 3
+    métodos, nunca asumas que es 0 sin que el usuario lo haya dicho.
 
     Método directo (el más común): solo pasa peso_final_g, hidratacion_pct,
-    levadura_pct, sal_pct -- deja los parámetros de prefermento en su default.
+    sal_pct, levadura_pct -- deja los parámetros de prefermento en su default.
 
     Con prefermento (poolish/biga) o masa madre natural: además pasa
     porcentaje_prefermento_pct (qué % de la harina TOTAL de la masa final va
@@ -279,7 +285,7 @@ def herramienta_calcular_masa_pan(
     sobre su harina -- para masa madre natural (sin levadura comercial)
     déjalos en 0."""
     return calcular_masa_pan(
-        peso_final_g, hidratacion_pct, levadura_pct, sal_pct,
+        peso_final_g, hidratacion_pct, sal_pct, levadura_pct,
         porcentaje_prefermento_pct, hidratacion_prefermento_pct,
         levadura_prefermento_pct, sal_prefermento_pct,
     )

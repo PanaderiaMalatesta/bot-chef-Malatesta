@@ -19,14 +19,17 @@ from __future__ import annotations
 def calcular_masa_pan(
     peso_final_g: float,
     hidratacion_pct: float,
+    sal_pct: float,
     levadura_pct: float = 0.0,
-    sal_pct: float = 0.0,
     porcentaje_prefermento_pct: float = 0.0,
     hidratacion_prefermento_pct: float = 0.0,
     levadura_prefermento_pct: float = 0.0,
     sal_prefermento_pct: float = 0.0,
 ) -> str:
     """Calcula harina/agua/levadura/sal (en gramos) para una masa de pan.
+    sal_pct es obligatorio (sin default a proposito) para que quien llama
+    esta funcion SIEMPRE lo pida explicitamente, nunca lo asuma en 0 -- la
+    sal aplica a los 3 metodos por igual, a diferencia de la levadura.
 
     Metodo directo: dejar porcentaje_prefermento_pct=0 (default).
     Metodo con prefermento o masa madre: dar porcentaje_prefermento_pct (qué
