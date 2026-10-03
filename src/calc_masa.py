@@ -15,6 +15,18 @@ madre no lleva levadura comercial, fermenta con su propia flora silvestre).
 """
 from __future__ import annotations
 
+# Biga de fermentacion larga (16 a 24 h a 16-18 °C): 0,3% de levadura SECA
+# sobre la harina de la biga (fresca = seca x 3 -> 0,9%). Poca levadura a
+# proposito: busca maxima complejidad de sabor sin agotar el prefermento.
+BIGA_LEVADURA_SECA_PCT = 0.3
+FACTOR_FRESCA_SECA = 3
+
+
+def levadura_biga_pct(tipo_levadura: str) -> float:
+    """% de levadura de la biga (sobre su harina) segun el tipo de levadura."""
+    fresca = (tipo_levadura or "").strip().lower().startswith("fresc")
+    return BIGA_LEVADURA_SECA_PCT * (FACTOR_FRESCA_SECA if fresca else 1)
+
 
 def calcular_masa_pan(
     peso_final_g: float,
@@ -25,6 +37,8 @@ def calcular_masa_pan(
     hidratacion_prefermento_pct: float = 0.0,
     levadura_prefermento_pct: float = 0.0,
     sal_prefermento_pct: float = 0.0,
+    tipo_prefermento: str = "",
+    tipo_levadura: str = "",
 ) -> str:
     """Calcula harina/agua/levadura/sal (en gramos) para una masa de pan.
     sal_pct es obligatorio (sin default a proposito) para que quien llama
@@ -39,7 +53,17 @@ def calcular_masa_pan(
     es 100). Los porcentajes de levadura/sal DEL prefermento
     (levadura_prefermento_pct, sal_prefermento_pct) son sobre la HARINA del
     prefermento, no sobre su peso total -- para masa madre natural dejarlos
-    en 0 (sin levadura comercial agregada)."""
+    en 0 (sin levadura comercial agregada).
+
+    Si tipo_prefermento es 'biga', la levadura de la biga NO se toma de
+    levadura_prefermento_pct: se fija en la dosis de fermentacion larga
+    (0,3% seca / 0,9% fresca segun tipo_levadura)."""
+    es_biga = (tipo_prefermento or "").strip().lower() == "biga" and porcentaje_prefermento_pct
+    if es_biga:
+        levadura_prefermento_pct = levadura_biga_pct(tipo_levadura)
+    tl = (tipo_levadura or "").strip().lower()
+    nombre_levadura = "Levadura fresca" if tl.startswith("fresc") else "Levadura seca" if tl.startswith("sec") else "Levadura"
+
     Pf = peso_final_g
     hf = hidratacion_pct / 100
     plev = levadura_pct / 100
@@ -70,7 +94,7 @@ def calcular_masa_pan(
     lineas.append(f"  - Harina: {max(harina, 0):.1f} g")
     lineas.append(f"  - Agua: {max(agua, 0):.1f} g")
     if levadura_pct or levadura_prefermento_pct:
-        lineas.append(f"  - Levadura: {max(levadura, 0):.1f} g")
+        lineas.append(f"  - {nombre_levadura}: {max(levadura, 0):.1f} g")
     if sal_pct or sal_prefermento_pct:
         lineas.append(f"  - Sal: {max(sal, 0):.1f} g")
 
@@ -79,16 +103,19 @@ def calcular_masa_pan(
         agua_pref = Pi - harina_pref
         levadura_pref = harina_pref * plp
         sal_pref = harina_pref * psp
+        nombre_pref = "Biga" if es_biga else "Prefermento/masa madre"
         lineas.append(
-            f"\nPrefermento/masa madre a usar: {Pi:.1f} g "
+            f"\n{nombre_pref} a usar: {Pi:.1f} g "
             f"({porcentaje_prefermento_pct:g}% de la harina total, al {hidratacion_prefermento_pct:g}% de hidratación)"
         )
         detalle = f"  Contiene: {harina_pref:.1f} g harina + {agua_pref:.1f} g agua"
         if levadura_pref:
-            detalle += f" + {levadura_pref:.2f} g levadura"
+            detalle += f" + {levadura_pref:.2f} g {nombre_levadura.lower()} ({levadura_prefermento_pct:g}% de su harina)"
         if sal_pref:
             detalle += f" + {sal_pref:.2f} g sal"
         lineas.append(detalle)
+        if es_biga:
+            lineas.append("  Fermentación larga: 16 a 24 h a 16-18 °C.")
         lineas.append("  (la harina/agua/levadura/sal de arriba son lo que se agrega ADEMÁS del prefermento)")
 
     return "\n".join(lineas)

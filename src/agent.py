@@ -162,8 +162,13 @@ Reglas importantes:
      método elegido). Nunca lo saltees ni llames a la herramienta con
      sal_pct=0 sin que el usuario lo haya dado explícitamente.
   6. Porcentaje de LEVADURA -- esto SÍ depende del método: si es directo o
-     con prefermento, preguntá levadura_pct (y si es con prefermento,
-     también levadura_prefermento_pct); si es masa madre natural, NO
+     con prefermento, preguntá levadura_pct y si la levadura es FRESCA o
+     SECA (tipo_levadura). Si es poolish u otro prefermento, preguntá
+     también levadura_prefermento_pct. Si es BIGA, NO preguntes la levadura
+     de la biga ni copies ahí el % de la masa final: la biga es de
+     fermentación larga (16 a 24 h a 16-18 °C) con 0,3% de levadura seca
+     (0,9% fresca) sobre su harina, y la herramienta la fija sola -- pasá
+     tipo_prefermento='biga' y tipo_levadura. Si es masa madre natural, NO
      preguntes por levadura de ningún tipo, la masa madre no lleva
      levadura comercial (dejá levadura_pct y levadura_prefermento_pct en
      0 sin preguntar).
@@ -263,6 +268,8 @@ def herramienta_calcular_masa_pan(
     hidratacion_prefermento_pct: float = 0.0,
     levadura_prefermento_pct: float = 0.0,
     sal_prefermento_pct: float = 0.0,
+    tipo_prefermento: str = "",
+    tipo_levadura: str = "",
 ) -> str:
     """Calculadora de masa de pan por porcentaje de panadero: dado el peso
     total de masa que se quiere obtener y la hidratación (%), devuelve los
@@ -283,11 +290,19 @@ def herramienta_calcular_masa_pan(
     la masa final -- una masa madre típica es 100). levadura_prefermento_pct/
     sal_prefermento_pct son el % de levadura/sal DENTRO del prefermento,
     sobre su harina -- para masa madre natural (sin levadura comercial)
-    déjalos en 0."""
+    déjalos en 0.
+
+    tipo_prefermento: 'biga', 'poolish', 'masa_madre' o '' (directo).
+    tipo_levadura: 'fresca' o 'seca'. Con tipo_prefermento='biga' la
+    levadura de la biga se fija sola (fermentación larga 16-24 h a 16-18 °C:
+    0,3% seca / 0,9% fresca sobre su harina) y levadura_prefermento_pct se
+    ignora -- no lo preguntes. levadura_pct es el % sobre la harina TOTAL,
+    no sobre el peso de la masa."""
     return calcular_masa_pan(
         peso_final_g, hidratacion_pct, sal_pct, levadura_pct,
         porcentaje_prefermento_pct, hidratacion_prefermento_pct,
         levadura_prefermento_pct, sal_prefermento_pct,
+        tipo_prefermento, tipo_levadura,
     )
 
 
