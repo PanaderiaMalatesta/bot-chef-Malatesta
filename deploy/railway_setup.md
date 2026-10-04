@@ -13,7 +13,7 @@ exponer ningún puerto ni configurar networking.
 1. Crear cuenta en [railway.app](https://railway.app) con "Continue with GitHub".
 2. Aceptar los términos (Privacy and Data Policy + Fair Use Policy).
 3. Instalar la Railway GitHub App, con acceso limitado **solo** al repo
-   `challenge-allura-malatesta` (Settings → Only select repositories).
+   `bot-chef-malatesta` (Settings → Only select repositories).
 4. New Project → GitHub Repository → seleccionar el repo. Railway detecta
    Python automáticamente (builder **Railpack**, no Nixpacks -- Railway migró
    de builder en algún momento de 2026; un `nixpacks.toml` en la raíz del repo

@@ -1,4 +1,4 @@
-# Agente Interno Malatesta — Challenge Allura
+# Bot Chef Malatesta
 
 Agente de IA para la administración interna de la Panadería Artesanal Malatesta
 (Villarrica, Chile). No es un chatbot de atención al cliente: lo usan el dueño
@@ -10,7 +10,7 @@ diario de producción/costo.
 ## Arquitectura
 
 ```
-challenge Allura/
+Chef Malatesta/
 ├── data/
 │   ├── recetas.md               # recetario en texto: ingredientes e instrucciones reales
 │   ├── recetas_ingredientes.csv # cantidad de cada insumo por producto/variante (receta estructurada)
