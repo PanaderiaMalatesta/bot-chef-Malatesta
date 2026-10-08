@@ -519,3 +519,137 @@ Reposo antes de consumir: mínimo 2 días, para que las tapas absorban humedad d
 - Medialunas Clásicas: objetivo <30%
 - Especial/Premium: hasta ~42% aceptable si es bajo volumen (<10-15% del mix)
 - Sobre 45% sostenido en producto de alto volumen: alarmante — revisar receta o precio
+
+
+## Cheesecakes — Recetario técnico de producción Malatesta (escalado +1%)
+Rendimiento de referencia: 1 cheesecake para molde de 16 cm × 6 cm. En el bot: producto Cheesecake, 1 unidad = 1 cheesecake.
+
+### Cheesecake — Migas sablée especiada (base de Frambuesa, Maracuyá, Frío, Café y Pistacho)
+Ingredientes: azúcar flor 20,20 g; azúcar rubia 19,19 g; canela 1,01 g; harina 149,48 g; mantequilla fría sin sal 77,77 g; huevo 22,22 g.
+Procedimiento: mezclar los secos con la mantequilla a baja velocidad hasta textura arenosa. Incorporar el huevo y trabajar a velocidad 1 hasta formar migas. Distribuir sobre bandeja y hornear a 180 °C unos 10 min, hasta coloración dorada uniforme. Enfriar antes de usar.
+
+### Cheesecake — Base reconstituida (con migas sablée especiada)
+Ingredientes: migas sablée especiada 138,37 g; mantequilla derretida 18,18 g; clara de huevo 8,08 g.
+Procedimiento: procesar las migas hasta polvo fino. Mezclar con la mantequilla y la clara hasta masa arenosa y homogénea. Distribuir de forma uniforme en el molde de 16 cm y compactar suavemente, evitando una base demasiado densa.
+
+### Cheesecake — Migas sablée de cacao (base de Chocolate y Dulce de leche)
+Ingredientes: azúcar flor 20,20 g; azúcar rubia 19,19 g; harina 135,34 g; cacao en polvo 15,15 g; mantequilla fría sin sal 77,77 g; huevo 22,22 g.
+Procedimiento: arenar secos y mantequilla a baja velocidad, incorporar el huevo y formar migas. Hornear a 180 °C unos 10 min hasta dorado uniforme. Enfriar.
+
+### Cheesecake — Base reconstituida de cacao
+Ingredientes: migas sablée de cacao 138,37 g; mantequilla derretida 18,18 g; clara de huevo 8,08 g.
+Procedimiento: procesar las migas hasta polvo, mezclar con mantequilla y clara, extender en el molde y compactar suavemente.
+
+### Cheesecake — Relleno cheesecake de vainilla (Frambuesa y Maracuyá)
+Ingredientes: queso crema 379,76 g; azúcar 84,84 g; huevo 37,37 g; crema 35% 122,21 g; pasta de vainilla 6,06 g; maicena 8,08 g.
+Procedimiento: procesar todo hasta mezcla homogénea, sin sobrebatir. Verter sobre la base. Cocer a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar a temperatura ambiente y congelar ~1 h antes de desmoldar.
+
+### Cheesecake de Frambuesa — Ganache de frambuesa
+Ingredientes: pulpa de frambuesa fresca 101,00 g; glucosa 40,40 g; chocolate blanco 31% 151,50 g; manteca de cacao 30,30 g; mantequilla fría 101,00 g; ácido cítrico 5,05 g.
+Procedimiento: calentar la pulpa con la glucosa hasta ebullición. Verter sobre el chocolate blanco y la manteca de cacao y reposar ~20 s. Comprobar que supere 45 °C (si no, recalentar 20–30 s). Emulsionar con mixer de inmersión sin incorporar aire. Agregar la mantequilla y el ácido cítrico y emulsionar hasta ganache lisa y brillante. Cubrir a contacto y cristalizar hasta 12 h a ≤20 °C. Si se refrigera, sacar ~1 h antes de usar.
+
+### Cheesecake de Frambuesa — Gel de frambuesa
+Ingredientes: pulpa de frambuesa fresca 353,50 g; azúcar 101,00 g; agar agar 3,54 g.
+Procedimiento: calentar la pulpa a 60 °C. Mezclar el azúcar con el agar agar e incorporarlo. Llevar a ebullición y mantener 1–2 min. Enfriar, procesar hasta homogeneizar y poner en manga sin boquilla.
+Armado: base reconstituida + relleno de vainilla horneado. Decorar con la ganache, el gel, frambuesas y fruta glaseada.
+
+### Cheesecake de Maracuyá — Gel mango–maracuyá–vainilla
+Ingredientes: pulpa de mango 120,19 g; pulpa de maracuyá 120,19 g; pasta de vainilla 18,18 g; pectina NH 4,24 g; azúcar 45,45 g.
+Procedimiento: calentar las pulpas y la vainilla a 60 °C. Mezclar el azúcar con la pectina NH e incorporarlos. Llevar a ebullición y mantener 1–2 min. Enfriar y procesar hasta textura lisa.
+Armado: base reconstituida + relleno de vainilla horneado. Aplicar el gel sobre la superficie y terminar con mango glaseado, crocante de maracuyá y menta.
+
+### Cheesecake Oreo — Base Oreo
+Ingredientes: galletas Oreo sin crema 124,23 g; mantequilla derretida 32,32 g; clara de huevo 7,07 g.
+Procedimiento: procesar las galletas hasta polvo fino. Incorporar mantequilla y clara y mezclar hasta textura arenosa. Distribuir en el molde y compactar ligeramente.
+
+### Cheesecake Oreo — Relleno cheesecake Oreo
+Ingredientes: queso crema 316,13 g; azúcar 70,70 g; huevo 31,31 g; crema 35% 102,01 g; pasta de vainilla 5,05 g; maicena 7,07 g; galletas Oreo trituradas 70,70 g.
+Procedimiento: procesar hasta mezcla homogénea, incorporar las galletas trituradas y mezclar de forma uniforme. Verter sobre la base. Hornear a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar y congelar ~1 h antes de desmoldar.
+
+### Cheesecake Oreo — Chantilly Oreo
+Ingredientes: crema 35% fría 202,00 g; azúcar flor 20,20 g; Oreo triturada tamizada según necesidad.
+Procedimiento: batir la crema fría con el azúcar flor hasta semi-montada. Incorporar la Oreo tamizada y seguir batiendo hasta crema firme y estable. Dosificar con boquilla lisa de ~1,5 cm y decorar con galletas Oreo.
+
+### Cheesecake de Chocolate — Ganache de chocolate
+Ingredientes: crema 35% 252,50 g; glucosa 5,05 g; chocolate con leche 56% 252,50 g.
+Procedimiento: calentar crema y glucosa hasta ebullición. Verter sobre el chocolate, reposar ~20 s y comprobar que supere 45 °C. Emulsionar sin incorporar aire. Cubrir a contacto y cristalizar 12–24 h a ≤20 °C, o refrigerar y sacar ~1 h antes de usar.
+
+### Cheesecake de Chocolate — Relleno cheesecake de chocolate
+Ingredientes: queso crema 180,79 g; azúcar 95,95 g; huevo 60,60 g; crema 35% 139,38 g; cacao en polvo 41,41 g; maicena 10,10 g; chocolate negro 70% derretido 110,09 g.
+Procedimiento: procesar hasta homogeneidad. Verter sobre la base reconstituida de cacao y hornear a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar y congelar ~1 h. Decorar con la ganache de chocolate, avellanas tostadas, praliné y hoja de oro.
+
+### Cheesecake Frío — Base fría reconstituida
+Ingredientes: migas sablée especiada 138,37 g; mantequilla derretida 20,20 g.
+Procedimiento: procesar las migas y mezclar con la mantequilla. Distribuir en el molde de 16 cm y compactar uniformemente.
+
+### Cheesecake Frío de Vainilla
+Ingredientes: gelatina 180 Bloom 2,02 g; agua 10,10 g; queso crema 339,36 g; leche condensada 23,23 g; azúcar 25,25 g; azúcar flor 6,06 g; crema 35% caliente 101,00 g; vaina de vainilla 0,51 ud.
+Procedimiento: hidratar la gelatina con el agua. Extraer las semillas de la vainilla e incorporarlas a la crema caliente; disolver allí la gelatina. Procesar con el resto hasta mezcla lisa. Verter sobre la base y congelar mínimo 12 h antes de desmoldar. No se hornea.
+
+### Cheesecake Frío de Chocolate
+Ingredientes: gelatina 180 Bloom 1,52 g; agua 7,58 g; queso crema 339,36 g; leche condensada 23,23 g; azúcar 25,25 g; cacao en polvo 8,08 g; azúcar flor 6,06 g; crema 35% caliente 101,00 g; chocolate negro 70% derretido 50,50 g.
+Procedimiento: hidratar la gelatina con el agua y disolverla en la crema caliente. Procesar con el resto hasta emulsión homogénea. Verter sobre la base y congelar mínimo 12 h. No se hornea. Nota: el total declarado en la fuente no coincide con la suma de ingredientes; se conservan los ingredientes.
+
+### Cheesecake de Dulce de Leche — Relleno
+Ingredientes: queso crema 316,13 g; azúcar 70,70 g; huevo 31,31 g; crema 35% 102,01 g; pasta de vainilla 5,05 g; maicena 7,07 g; dulce de leche 101,00 g.
+Procedimiento: trabajar queso crema, azúcar, maicena y vainilla a velocidad media 1 min; raspar el bowl y seguir ~30 s. Agregar el resto y batir 3–4 min a velocidad media-alta hasta homogeneizar. Verter sobre la base reconstituida de cacao y hornear a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar y congelar ~1 h.
+
+### Cheesecake de Dulce de Leche — Ganache de chocolate blanco caramelizado
+Ingredientes: crema 35% 116,15 g; leche entera 50,50 g; glucosa 73,73 g; Dulcey 35% 257,55 g; manteca de cacao 31,31 g; mantequilla fría 62,62 g.
+Procedimiento: calentar crema, leche y glucosa. Verter sobre el chocolate y la manteca de cacao, reposar ~20 s y emulsionar cuando supere 45 °C. Incorporar la mantequilla y volver a emulsionar. Aplicar sobre el cheesecake y refrigerar 30–45 min para cristalizar. Decorar con líneas de chocolate negro y crispearls.
+
+### Cheesecake de Café — Relleno
+Ingredientes: queso crema 316,13 g; azúcar 70,70 g; huevo 31,31 g; crema 35% 102,01 g; pasta de vainilla 5,05 g; maicena 7,07 g; agua 8,08 g; café instantáneo 2,02 g.
+Procedimiento: procesar todo hasta homogeneizar. Verter sobre la base reconstituida y hornear a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar y congelar ~1 h.
+
+### Cheesecake de Café — Ganache montada de café
+Ingredientes: crema 35% 142,41 g; café instantáneo 1,01 g; glucosa 4,04 g; chocolate blanco 31% 54,54 g.
+Procedimiento: calentar crema, café y glucosa hasta ebullición. Verter sobre el chocolate, reposar ~20 s y emulsionar por completo. Cubrir a contacto y refrigerar al menos 12 h antes de montar.
+
+### Cheesecake de Café — Ganache de chocolate negro
+Ingredientes: chocolate negro 56% 131,30 g; crema 35% 78,78 g; azúcar invertido 38,38 g (sustituible 1:1 por glucosa); manteca de cacao 20,20 g.
+Procedimiento: calentar la fase líquida con el chocolate y la manteca de cacao, asegurando más de 45 °C. Emulsionar y cubrir a contacto. Cristalizar 12 h a ≤20 °C o refrigerar y llevar a temperatura ambiente antes de usar.
+
+### Cheesecake de Café — Ganache de café
+Ingredientes: espresso 65,65 g; glucosa 25,25 g; sorbitol 10,10 g (sustituible 1:1 por glucosa); chocolate con leche 40% 257,55 g; manteca de cacao 5,05 g; mantequilla fría 62,62 g.
+Procedimiento: calentar espresso, glucosa y sorbitol hasta ebullición. Verter sobre chocolate y manteca de cacao, reposar ~20 s y emulsionar. Incorporar la mantequilla fría y emulsionar hasta brillo y textura uniforme. Aplicar una capa de ~5 mm sobre el cheesecake y refrigerar 35–40 min.
+
+### Cheesecake de Café — Placas de chocolate amargo
+Ingredientes: chocolate negro 56% 202,00 g.
+Procedimiento: templar el chocolate siguiendo la curva del fabricante. Extender y formar las placas decorativas según el formato de producción.
+
+### Cheesecake de Pistacho — Ganache montada de pistacho
+Ingredientes: crema 35% 204,02 g; glucosa 4,04 g; chocolate blanco 31% 77,77 g; pasta de pistacho 32,32 g.
+Procedimiento: calentar crema y glucosa hasta ebullición. Verter sobre chocolate y pasta de pistacho, reposar ~20 s y emulsionar hasta ganache lisa. Cubrir a contacto y refrigerar al menos 12 h antes de montar.
+
+### Cheesecake de Pistacho — Relleno
+Ingredientes: queso crema 316,13 g; azúcar 70,70 g; huevo 31,31 g; crema 35% 102,01 g; pasta de vainilla 5,05 g; maicena 7,07 g; pasta de pistacho 80,80 g.
+Procedimiento: procesar hasta homogeneidad. Verter sobre la base reconstituida y hornear a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar y congelar ~1 h.
+
+### Cheesecake de Pistacho — Ganache de pistacho
+Ingredientes: crema 35% 164,63 g; glucosa 50,50 g; chocolate blanco 31% 121,20 g; manteca de cacao 10,10 g; pasta de pistacho 55,55 g; colorante verde hidrosoluble c/n.
+Procedimiento: calentar crema y glucosa hasta ebullición. Verter sobre chocolate y manteca de cacao, reposar 20 s y emulsionar. Incorporar la pasta de pistacho y, si corresponde, el colorante. Aplicar sobre la superficie del cheesecake y refrigerar 30–45 min.
+
+### Cheesecake de Pistacho — Pistachos caramelizados
+Ingredientes: pistachos 101,00 g; azúcar 25,25 g; clara de huevo 10,10 g.
+Procedimiento: mezclar hasta recubrir los pistachos. Hornear a 180 °C por 8–10 min. Enfriar completamente antes de usar.
+
+### Cheesecake de Avellana — Ganache de avellana
+Ingredientes: crema 35% 106,05 g; chocolate con leche 40% 176,75 g; leche entera 50,50 g; glucosa 53,53 g; pasta de avellana 20,20 g.
+Procedimiento: calentar chocolate, crema, leche y glucosa. Verificar más de 45 °C y emulsionar hasta textura lisa. Incorporar la pasta de avellana y completar la emulsión. Depositar en molde espiral y congelar ~2 h antes de desmoldar.
+
+### Cheesecake de Avellana — Migas sablée de avellana
+Ingredientes: azúcar flor 20,20 g; azúcar rubia 19,19 g; harina 106,05 g; mantequilla fría sin sal 77,77 g; huevo 22,22 g; avellanas 43,43 g; canela 1,01 g.
+Procedimiento: procesar los secos con las avellanas hasta polvo fino. Arenar con la mantequilla a baja velocidad, incorporar el huevo y formar migas. Hornear a 180 °C unos 10 min hasta dorar.
+
+### Cheesecake de Avellana — Base reconstituida de avellana
+Ingredientes: migas sablée de avellana 138,37 g; mantequilla derretida 18,18 g; clara de huevo 8,08 g.
+Procedimiento: procesar las migas y mezclar con mantequilla y clara. Distribuir y compactar uniformemente en el molde.
+
+### Cheesecake de Avellana — Relleno
+Ingredientes: queso crema 411,07 g; azúcar 91,91 g; huevo 40,40 g; crema 35% 132,31 g; pasta de vainilla 6,06 g; maicena 9,09 g; pasta de avellana 105,04 g.
+Procedimiento: procesar hasta homogeneidad. Verter sobre la base y hornear a 110 °C por 40–50 min hasta 65–70 °C en el centro. Enfriar y congelar ~1 h antes de desmoldar.
+
+### Cheesecake de Avellana — Avellanas caramelizadas
+Ingredientes: avellanas 101,00 g; azúcar 25,25 g; clara de huevo 10,10 g.
+Procedimiento: mezclar hasta cubrir las avellanas. Hornear a 180 °C por 8–10 min y enfriar.
