@@ -18,7 +18,7 @@ from langchain_core.tools import tool
 from langchain_cohere import ChatCohere
 
 from . import tools as t
-from .calc_masa import calcular_masa_pan
+from .calc_masa import calcular_masa_desde_biga, calcular_masa_pan
 from .ingest import load_index
 
 load_dotenv()
@@ -179,6 +179,25 @@ Reglas importantes:
   (sal) es obligatorio siempre, el paso 6 (levadura) solo si el método la
   usa. Recién con todos los datos, llamá a la herramienta y mostrá el
   resultado tal cual lo devuelve.
+  7. Si es MASA DE PIZZA (el usuario lo dice o habla de pizzas), pregunta
+     también qué % de aceite lleva sobre la harina (aceite_pct); si dice
+     que no lleva, déjalo en 0.
+  NUNCA inventes ni asumas un valor que el usuario no dio (ni % de
+  prefermento, ni hidratación de la biga, ni levadura): pregúntalo. Si la
+  herramienta responde "FALTAN DATOS", pregúntale al usuario exactamente
+  esos datos, uno a la vez, y vuelve a llamarla cuando los tengas. Si
+  responde que alguna cantidad queda negativa, explícale el motivo que
+  indica y pregúntale qué valor quiere ajustar.
+- Si el usuario dice que ya tiene una BIGA HECHA y pesada (ej. "tengo 1500 g
+  de biga del día anterior, calcúlame la masa"), usa
+  herramienta_calcular_masa_desde_biga, NO herramienta_calcular_masa_pan.
+  Reúne, una pregunta a la vez y sin preguntar lo que ya dijo: peso de la
+  biga, hidratación con que se hizo la biga, hidratación final de la masa,
+  % de sal, % de levadura total y si es fresca o seca, % de aceite si es
+  masa de pizza, y el tamaño: cuánta masa final quiere O qué % de la harina
+  total debe venir de la biga. Si menciona bollos de pizza, pregunta el
+  peso de cada bollo (peso_bollo_g). Mismas reglas: no inventes valores y
+  si la herramienta dice "FALTAN DATOS", pregunta eso.
 """
 
 
@@ -270,6 +289,7 @@ def herramienta_calcular_masa_pan(
     sal_prefermento_pct: float = 0.0,
     tipo_prefermento: str = "",
     tipo_levadura: str = "",
+    aceite_pct: float = 0.0,
 ) -> str:
     """Calculadora de masa de pan por porcentaje de panadero: dado el peso
     total de masa que se quiere obtener y la hidratación (%), devuelve los
@@ -297,12 +317,43 @@ def herramienta_calcular_masa_pan(
     levadura de la biga se fija sola (fermentación larga 16-24 h a 16-18 °C:
     0,3% seca / 0,9% fresca sobre su harina) y levadura_prefermento_pct se
     ignora -- no lo preguntes. levadura_pct es el % sobre la harina TOTAL,
-    no sobre el peso de la masa."""
+    no sobre el peso de la masa. aceite_pct (opcional, típico en masa de
+    pizza) es el % de aceite sobre la harina total.
+    Si devuelve "FALTAN DATOS", pregúntale al usuario esos datos -- no los
+    inventes."""
     return calcular_masa_pan(
         peso_final_g, hidratacion_pct, sal_pct, levadura_pct,
         porcentaje_prefermento_pct, hidratacion_prefermento_pct,
         levadura_prefermento_pct, sal_prefermento_pct,
-        tipo_prefermento, tipo_levadura,
+        tipo_prefermento, tipo_levadura, aceite_pct,
+    )
+
+
+@tool
+def herramienta_calcular_masa_desde_biga(
+    peso_biga_g: float,
+    hidratacion_biga_pct: float,
+    hidratacion_pct: float,
+    sal_pct: float,
+    levadura_pct: float = 0.0,
+    tipo_levadura: str = "",
+    aceite_pct: float = 0.0,
+    porcentaje_biga_pct: float = 0.0,
+    peso_final_g: float = 0.0,
+    peso_bollo_g: float = 0.0,
+) -> str:
+    """Calcula la masa completa (lo que hay que agregar y el peso final)
+    partiendo de una biga YA HECHA y pesada. Todos los % son de panadero,
+    sobre la harina TOTAL. levadura_pct es el % TOTAL: la levadura que ya
+    trae la biga (0,3% seca / 0,9% fresca sobre su harina) se descuenta
+    sola. Define el tamaño con porcentaje_biga_pct (qué % de la harina total
+    aporta la biga) O con peso_final_g (masa total deseada) -- uno de los
+    dos. aceite_pct es opcional (pizza). peso_bollo_g es opcional: divide
+    la masa en bollos. Si devuelve "FALTAN DATOS", pregúntale al usuario
+    esos datos -- no los inventes."""
+    return calcular_masa_desde_biga(
+        peso_biga_g, hidratacion_biga_pct, hidratacion_pct, sal_pct, levadura_pct,
+        tipo_levadura, aceite_pct, porcentaje_biga_pct, peso_final_g, peso_bollo_g,
     )
 
 
@@ -406,6 +457,7 @@ TOOLS = [
     herramienta_costo_diario,
     herramienta_buscar_en_recetario,
     herramienta_calcular_masa_pan,
+    herramienta_calcular_masa_desde_biga,
 ]
 
 
