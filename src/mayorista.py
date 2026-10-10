@@ -250,9 +250,15 @@ def iniciar() -> dict:
 def siguiente_pregunta(estado: dict) -> str:
     paso = estado["preguntando"]
     if paso == "productos":
-        return ("¿Qué productos y cuántas unidades por despacho? Puedes responder con el número y la cantidad "
-                "(ej. \"1x24, 2x12\") o con el nombre (ej. \"24 facturas, 12 medialunas\").\n\n"
+        return ("¿Qué productos van en la cotización? Responde los números de la lista (ej. \"1, 4, 9\") y "
+                "después te pregunto las cantidades. También puedes mandar todo junto: \"1x24, 4x12\" "
+                "o \"24 facturas, 12 medialunas\".\n\n"
                 + listar_precios_texto())
+    if paso == "cantidades":
+        df = cargar_precios()
+        nombres = "\n".join(f"- {df.iloc[i]['producto']}" for i in estado["seleccion"])
+        return (f"¿Cuántas unidades por despacho de cada uno?\n{nombres}\n\n"
+                "Responde en el mismo orden (ej. \"24, 12, 12\"), o un solo número si es igual para todos.")
     if paso == "confirmacion":
         return formatear_resumen(estado)
     return PREGUNTAS[paso]
@@ -299,6 +305,8 @@ def interpretar_productos(texto: str) -> tuple[list[dict], str | None]:
             if len(numeros) != 1:
                 return [], (f"No entendí \"{trozo.strip()}\". Usa número x cantidad (ej. \"1x24\") "
                             "o cantidad y nombre (ej. \"24 facturas\").")
+            if re.fullmatch(r"\s*\d+\s*", trozo):
+                return [], (f"Al producto {numeros[0]} le falta la cantidad (ej. \"{numeros[0]}x12\").")
             cantidad = int(numeros[0])
             indice, error = _buscar_producto(re.sub(r"\d+", " ", trozo), df)
             if error:
@@ -309,11 +317,33 @@ def interpretar_productos(texto: str) -> tuple[list[dict], str | None]:
 
     if not cantidades:
         return [], "No encontré productos en tu respuesta."
+    return _items_validados(cantidades)
+
+
+def _items_validados(cantidades: dict[int, int]) -> tuple[list[dict], str | None]:
     total = sum(cantidades.values())
     if total < MINIMO_UNIDADES:
         return [], (f"El pedido suma {total} unidades y el mínimo mayorista es {MINIMO_UNIDADES}. "
                     "Agrega más unidades.")
     return [{"indice": i, "cantidad": c} for i, c in sorted(cantidades.items())], None
+
+
+# Palabras que acompañan a una seleccion de la lista sin cantidades
+# ("el 1, el 4 y el 9 de la lista"): si solo quedan estas, son numeros de la lista.
+_PALABRAS_SELECCION = {"el", "la", "los", "las", "y", "e", "de", "del", "lista", "numero", "numeros", "nro",
+                       "n", "opcion", "opciones", "producto", "productos", "item", "items", "quiero", "solo"}
+
+
+def seleccion_sin_cantidades(texto: str) -> list[int] | None:
+    """Si la respuesta es solo numeros de la lista (ej. "1, 4, 9"), devuelve
+    sus indices (base 0); si trae cantidades o nombres, None."""
+    if re.search(r"[x×*]\s*\d", texto, re.IGNORECASE):
+        return None
+    numeros = re.findall(r"\d+", texto)
+    palabras = re.findall(r"[a-z]+", _normalizar(texto))
+    if not numeros or any(p not in _PALABRAS_SELECCION for p in palabras):
+        return None
+    return list(dict.fromkeys(int(n) - 1 for n in numeros))
 
 
 def calcular(estado: dict) -> dict:
@@ -349,10 +379,32 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
     elif paso in ("rut", "contacto", "observaciones"):
         estado[paso] = "" if omitido else texto
     elif paso == "productos":
+        seleccion = seleccion_sin_cantidades(texto)
+        if seleccion is not None:
+            maximo = len(cargar_precios())
+            fuera = [i + 1 for i in seleccion if not 0 <= i < maximo]
+            if fuera:
+                return f"El número {fuera[0]} no está en la lista (va de 1 a {maximo})."
+            estado["seleccion"] = seleccion
+            estado["preguntando"] = "cantidades"
+            return None
         items, error = interpretar_productos(texto)
         if error:
             return error
         estado["items"] = items
+    elif paso == "cantidades":
+        numeros = [int(n) for n in re.findall(r"\d+", texto.replace(".", ""))]
+        seleccion = estado["seleccion"]
+        if len(numeros) == 1:
+            numeros = numeros * len(seleccion)
+        if len(numeros) != len(seleccion) or any(n <= 0 for n in numeros):
+            return (f"Necesito {len(seleccion)} cantidades en el mismo orden (ej. "
+                    f"\"{', '.join(['24', '12', '12', '6'][:len(seleccion)])}\"), o un solo número si es igual para todos.")
+        items, error = _items_validados(dict(zip(seleccion, numeros)))
+        if error:
+            return error
+        estado["items"] = items
+        paso = "productos"  # sigue el flujo como si hubiera respondido el paso de productos
     elif paso == "descuento":
         if omitido:
             estado["descuento_pct"] = 0.0
