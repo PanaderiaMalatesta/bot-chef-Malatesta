@@ -22,11 +22,20 @@ modificarlo o no:
   nuevas que aparecen en el repo (ej. una receta nueva agregada por git) se
   agregan al volumen, pero cualquier fila que ya exista en el volumen se
   deja intacta, para no perder ediciones hechas en produccion por chat.
+  En recetas_ingredientes.csv la unidad de fusion es la RECETA completa
+  (producto+variante), no la fila: si el volumen ya tiene esa receta, el
+  repo no le agrega ninguna fila. Antes se fusionaba fila por fila y, cuando
+  el planificador reemplazaba una receta (ej. componentes Masa/Relleno por
+  un unico componente "Receta"), cada deploy volvia a meter las filas viejas
+  del repo y la receta quedaba duplicada (costo al doble).
+- Las claves se comparan normalizadas (minusculas, sin tildes, espacios ni
+  guiones bajos), para que "Dulce de Leche" y "DulceDeLeche" sean la misma.
 """
 from __future__ import annotations
 
 import os
 import shutil
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -40,13 +49,27 @@ DATA_DIR = Path(_data_dir_env) if _data_dir_env else REPO_DATA_DIR
 # saber si una fila del repo ya existe en el volumen o es nueva.
 _CSVS_ADITIVOS = {
     "catalogo_precios.csv": ["producto", "variante"],
-    "recetas_ingredientes.csv": ["producto", "variante", "componente", "insumo"],
+    "recetas_ingredientes.csv": ["producto", "variante"],
     "precios_insumos.csv": ["insumo"],
 }
 
 # Archivos que nunca se editan por chat -- siempre se sincronizan enteros
 # del repo al volumen (el repo manda, sin fusion).
 _ARCHIVOS_SIEMPRE_DEL_REPO = ["recetas.md"]
+
+
+def _normalizar(texto: str) -> str:
+    """Misma normalizacion que tools._normalizar (no se importa de ahi para
+    evitar una dependencia circular con tools, que importa este modulo)."""
+    texto = unicodedata.normalize("NFKD", str(texto))
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    return texto.lower().replace(" ", "").replace("_", "")
+
+
+def _claves(df: pd.DataFrame, columnas_clave: list[str]) -> pd.Series:
+    return df[columnas_clave].fillna("").astype(str).apply(
+        lambda fila: tuple(_normalizar(v) for v in fila), axis=1
+    )
 
 
 def _fusionar_csv_aditivo(nombre: str, columnas_clave: list[str]) -> None:
@@ -64,8 +87,8 @@ def _fusionar_csv_aditivo(nombre: str, columnas_clave: list[str]) -> None:
     df_repo = pd.read_csv(origen, sep=None, engine="python")
     df_volumen = pd.read_csv(destino, sep=None, engine="python")
 
-    claves_existentes = set(map(tuple, df_volumen[columnas_clave].astype(str).values))
-    es_nueva = ~df_repo[columnas_clave].astype(str).apply(tuple, axis=1).isin(claves_existentes)
+    claves_existentes = set(_claves(df_volumen, columnas_clave)) if len(df_volumen) else set()
+    es_nueva = ~_claves(df_repo, columnas_clave).isin(claves_existentes)
     filas_nuevas = df_repo[es_nueva]
     if filas_nuevas.empty:
         return
