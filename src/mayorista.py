@@ -37,8 +37,8 @@ VALIDEZ_DIAS = 15
 
 TELEFONO = "+56 9 3132 6999"
 PIE = (
-    "<b>Panadería Malatesta</b> · Vicente Reyes 562, Villarrica<br/>"
-    f"Pedidos y consultas: <b>{TELEFONO}</b> (WhatsApp) · @malatesta.chile · malatestachile.cl"
+    "<b>Panadería Artesanal Malatesta</b> · Vicente Reyes 562, Villarrica<br/>"
+    f"Pedidos y consultas: <b>{TELEFONO}</b> (WhatsApp) · oficialmalatesta@gmail.com · malatestachile.cl"
 )
 CONDICIONES = [
     f"<b>Pedido mínimo:</b> {MINIMO_UNIDADES} unidades por despacho; puedes combinar productos. "
@@ -126,7 +126,7 @@ def actualizar_precio(producto: str, nivel: str, precio_con_iva: float) -> str:
 
 def _doc(ruta: Path, titulo: str) -> SimpleDocTemplate:
     return SimpleDocTemplate(str(ruta), pagesize=letter, leftMargin=22 * mm, rightMargin=22 * mm,
-                             topMargin=12 * mm, bottomMargin=12 * mm, title=titulo, author="Panadería Malatesta")
+                             topMargin=12 * mm, bottomMargin=12 * mm, title=titulo, author="Panadería Artesanal Malatesta")
 
 
 def _encabezado(titulo: str, subtitulo: str) -> list:
@@ -216,7 +216,7 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
         _caja_condiciones(["<b>Vigencia:</b> precios por unidad, revisables cada 3 meses según el costo de los insumos."]),
         Spacer(1, 8), _pie(),
     ]
-    _doc(ruta, "Lista de precios mayorista – Panadería Malatesta").build(historia)
+    _doc(ruta, "Lista de precios mayorista – Panadería Artesanal Malatesta").build(historia)
     return ruta
 
 
@@ -354,15 +354,17 @@ def calcular(estado: dict) -> dict:
     lineas = []
     for it in estado["items"]:
         fila = df.iloc[it["indice"]]
-        precio = int(fila[columna])
+        # la lista guarda precios con IVA; la cotizacion va en neto por linea
+        # y el IVA se agrega una sola vez sobre el total, como en la factura
+        precio = neto(int(fila[columna]))
         lineas.append({"producto": fila["producto"], "detalle": fila["detalle"], "cantidad": it["cantidad"],
                        "precio": precio, "subtotal": precio * it["cantidad"]})
     bruto = sum(l["subtotal"] for l in lineas)
     descuento = round(bruto * estado["descuento_pct"] / 100)
-    total = bruto - descuento
-    total_neto = neto(total)
+    total_neto = bruto - descuento
+    iva = round(total_neto * IVA)
     return {"nivel": nivel, "unidades": unidades, "lineas": lineas, "bruto": bruto, "descuento": descuento,
-            "total": total, "neto": total_neto, "iva": total - total_neto}
+            "neto": total_neto, "iva": iva, "total": total_neto + iva}
 
 
 def aplicar_respuesta(estado: dict, texto: str) -> str | None:
@@ -448,10 +450,11 @@ def formatear_resumen(estado: dict) -> str:
         lineas.append(f"Contacto: {estado['contacto']}")
     lineas.append(f"\nNivel {c['nivel']} ({c['unidades']} unidades por despacho):")
     for l in c["lineas"]:
-        lineas.append(f"- {l['cantidad']} × {l['producto']} a {fmt(l['precio'])} = {fmt(l['subtotal'])}")
+        lineas.append(f"- {l['cantidad']} × {l['producto']} a {fmt(l['precio'])} neto = {fmt(l['subtotal'])}")
     if c["descuento"]:
-        lineas.append(f"Subtotal {fmt(c['bruto'])} − descuento {estado['descuento_pct']:g}% ({fmt(c['descuento'])})")
-    lineas.append(f"Total {fmt(c['total'])} con IVA (neto {fmt(c['neto'])} + IVA {fmt(c['iva'])})")
+        lineas.append(f"Subtotal neto {fmt(c['bruto'])} − descuento {estado['descuento_pct']:g}% "
+                      f"({fmt(c['descuento'])})")
+    lineas.append(f"Neto {fmt(c['neto'])} + IVA 19% {fmt(c['iva'])} = Total {fmt(c['total'])}")
     if estado["observaciones"]:
         lineas.append(f"Observaciones: {estado['observaciones']}")
     lineas.append('\n¿Genero el PDF? Responde "sí", "cambiar productos" o "cancelar".')
@@ -501,7 +504,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     ]))
 
     # Detalle
-    data = [["Producto", "Cantidad", "Precio unitario\ncon IVA", "Subtotal\ncon IVA"]]
+    data = [["Producto", "Cantidad", "Precio unitario\nneto", "Subtotal\nneto"]]
     for l in c["lineas"]:
         nombre = f"<b>{l['producto']}</b>"
         if l["detalle"]:
@@ -510,7 +513,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     n_lineas = len(data)
     totales = []
     if c["descuento"]:
-        totales += [["", "", "Subtotal", fmt(c["bruto"])],
+        totales += [["", "", "Subtotal neto", fmt(c["bruto"])],
                     ["", "", f"Descuento {estado['descuento_pct']:g}%", "−" + fmt(c["descuento"])]]
     totales += [["", "", "Neto", fmt(c["neto"])], ["", "", "IVA 19%", fmt(c["iva"])],
                 ["", "", "TOTAL", fmt(c["total"])]]
@@ -535,7 +538,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
 
     nota = (f"Nivel {c['nivel']} aplicado: {c['unidades']} unidades por despacho "
             f"(nivel A: {MINIMO_UNIDADES} a {UMBRAL_NIVEL_B - 1} u; nivel B: {UMBRAL_NIVEL_B} u o más).")
-    historia = _encabezado(f"Cotización N° {numero:04d}", "Venta mayorista para cafeterías · Precios con IVA incluido")
+    historia = _encabezado(f"Cotización N° {numero:04d}", "Precios mayoristas")
     historia += [tabla_datos, Spacer(1, 10), tabla, Spacer(1, 4),
                  Paragraph(f"<font size='7.5' color='#6B5B50'>{nota}</font>", _ST_NORMAL)]
     if estado["observaciones"]:
@@ -543,7 +546,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     historia += [Spacer(1, 10),
                  _caja_condiciones([f"<b>Validez:</b> esta cotización es válida por {VALIDEZ_DIAS} días."]),
                  Spacer(1, 8), _pie()]
-    _doc(ruta, f"Cotización {numero:04d} – Panadería Malatesta").build(historia)
+    _doc(ruta, f"Cotización {numero:04d} – Panadería Artesanal Malatesta").build(historia)
     return ruta
 
 
