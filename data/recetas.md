@@ -66,8 +66,8 @@ Baguette + 50 g queso ($10.000/kg) + 50 g jamón ($10.000/kg), sin palta. Costo 
 ### Pollo y palta
 Baguette + 100 g pollo pechuga ($2.900/kg) + 200 g palta ($3.000/kg), sin queso. Costo total $1.206. Precio venta $3.020. Food cost 39,9%.
 
-## Muffin de chocolate (dato de baja confianza — Excel original, no re-costeado)
-Costo $623/unidad. Precio venta $2.200. Food cost 28,3%.
+## Muffins
+Ver la sección "Muffins" más abajo (receta base de vainilla y sus 4 variantes, costeadas en el bot).
 
 ## Café al paso (Máquina Iperautomática, insumo comprado — no receta propia)
 Costo insumo promedio real por café 9oz: $845 neto. Precio venta café con leche 9oz: $2.690.
@@ -490,18 +490,36 @@ incorporar esta mezcla a la nata y terminar de montar suavemente.
 **Montaje:** abrir el bizcocho, rellenar con el frosting, cerrar y decorar
 al gusto.
 
-## Muffins (categoría nueva, recetario interno en ampliación)
+## Muffins (recetario interno, actualizado 10-oct-2026)
 
-### Muffin de Chocolate — rinde 24 unidades
-Ingredientes húmedos: mantequilla derretida 180 g, aceite 180 mL, huevos 6
-unidades, azúcar regular 720 g, café soluble 6 cucharadas (~36 g, estimado),
-leche 765 mL (o 91,8 g de leche en polvo disuelta en agua).
-Ingredientes secos: harina de trigo todo uso 975 g, cocoa 198 g, polvo de
-hornear 7½ cucharaditas, bicarbonato de sodio 1½ cucharadita, sal ¾
-cucharadita, chispas de chocolate 510 g.
-Decoración: trozos de chocolate 90 g, azúcar glass 9 cucharadas.
+Todas las recetas rinden 24 muffins. Horneado a 165 °C por 26 minutos.
 
-Horneado a 165°C por 26 minutos.
+### Masa base de vainilla (para Vainilla chispas, Manzana crumble y Arándanos)
+Húmedos: aceite maravilla 360 mL, huevos 6 unidades, azúcar 720 g, leche 765 mL
+(o 91,8 g de leche en polvo disuelta en agua).
+Secos: harina 1.173 g, polvo de hornear 30 g, bicarbonato 7,5 g, sal 4,5 g.
+Sin mantequilla, sin cacao y sin café.
+
+### Muffin Vainilla Chispas
+Masa base + chispas de chocolate 400 g en la masa.
+Decoración: chispas de chocolate 90 g y azúcar flor 72 g.
+
+### Muffin Manzana Crumble
+Masa base + relleno de manzana confitada (comprado listo) 600 g, 25 g por muffin.
+Crumble: harina 144 g, azúcar 96 g, mantequilla 120 g (15 g por muffin).
+
+### Muffin Arándanos Glaseado
+Masa base + arándanos 480 g (20 g por muffin).
+Glaseado: azúcar flor 192 g y jugo de limón 48 g (10 g por muffin).
+
+### Muffin Chocolate Ganache
+Masa de chocolate: aceite maravilla 360 mL, huevos 6 unidades, azúcar 720 g,
+café soluble 36 g, leche 765 mL (o 91,8 g de leche en polvo), harina 975 g,
+cacao en polvo 198 g, polvo de hornear 30 g, bicarbonato 7,5 g, sal 4,5 g,
+chispas de chocolate 400 g.
+Decoración: chispas de chocolate 90 g y azúcar flor 72 g.
+Inserto de ganache: 20 g por muffin, mitad crema 35% y mitad chocolate
+(240 g de crema + 240 g de chocolate por lote).
 
 ## Alfajores (categoría nueva, recetario interno en ampliación)
 

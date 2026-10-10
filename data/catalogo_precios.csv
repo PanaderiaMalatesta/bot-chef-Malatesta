@@ -1,18 +1,18 @@
 producto,variante,categoria,precio_venta,costo_fijo,tiempo_fabricacion_min
-Factura,Membrillo,Facturas,1500.0,,
-Factura,Pastelera,Facturas,1500.0,,
-Factura,Manjar,Facturas,1500.0,,
-Medialuna,Tradicional,Medialuna_Tradicional,1700.0,,
-Medialuna,DulceDeLeche,Medialuna_Clasica,2200.0,,
-Medialuna,Membrillo,Medialuna_Clasica,2200.0,,
-Medialuna,Pastelera,Medialuna_Clasica,2200.0,,
-Medialuna,ManzanaCanela,Medialuna_Clasica,2200.0,,
-Medialuna,Chocotorta,Medialuna_Especial,2390.0,,
-Medialuna,NutellaChocBlanco,Medialuna_Especial,2390.0,,
-Medialuna,Pistacho,Medialuna_Premium,3690.0,,
-Sandwich,JamonYQueso,Sandwich,3290.0,,
-Sandwich,PolloYPalta,Sandwich,3020.0,,
-Muffin,Chocolate,Muffin,2200.0,,
+Factura,Membrillo,Facturas,1500.0,,2.0
+Factura,Pastelera,Facturas,1500.0,,2.0
+Factura,Manjar,Facturas,1500.0,,2.0
+Medialuna,Tradicional,Medialunas,1700.0,,2.5
+Medialuna,DulceDeLeche,Medialunas,2200.0,,2.5
+Medialuna,Membrillo,Medialunas,2200.0,,2.5
+Medialuna,Pastelera,Medialunas,2200.0,,2.5
+Medialuna,ManzanaCanela,Medialunas,2200.0,,2.5
+Medialuna,Chocotorta,Medialunas,2390.0,,3.0
+Medialuna,NutellaChocBlanco,Medialunas,2390.0,,3.0
+Medialuna,Pistacho,Medialunas,3690.0,,3.0
+Sandwich,JamonYQueso,Sándwiches,3290.0,,3.0
+Sandwich,PolloYPalta,Sándwiches,3020.0,,3.0
+Muffin,VainillaChispas,Muffin,2200.0,,
 MasaQuebrada,StreuselRegular,MasaQuebrada_Base,,,
 MasaQuebrada,StreuselFrutosSecos,MasaQuebrada_Base,,,
 MasaQuebrada,Sablee,MasaQuebrada_Base,,,
@@ -39,8 +39,12 @@ Galleta,RedVelvet,Galleta,,,
 Galleta,StreuselFrambuesa,Galleta,,,
 Brownie,,Brownie,,,
 Croissant,Plano,Croissant,,,
+Pie de limón,,SinClasificar,,,
 CarrotCake,,Torta,,,
 Alfajor,Marplatense,Alfajores,3000.0,,
+Glaseado casero para fresas,,SinClasificar,,,
+Kuchen Sureño de Murta,,SinClasificar,,,
+Hojarasca,,SinClasificar,,,
 Cheesecake,Frambuesa,Cheesecakes,,,
 Cheesecake,Maracuya,Cheesecakes,,,
 Cheesecake,Oreo,Cheesecakes,,,
@@ -51,3 +55,6 @@ Cheesecake,DulceDeLeche,Cheesecakes,,,
 Cheesecake,Cafe,Cheesecakes,,,
 Cheesecake,Pistacho,Cheesecakes,,,
 Cheesecake,Avellana,Cheesecakes,,,
+Muffin,ChocolateGanache,Muffin,,,
+Muffin,ManzanaCrumble,Muffin,,,
+Muffin,ArandanosGlaseado,Muffin,,,
