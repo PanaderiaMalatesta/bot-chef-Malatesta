@@ -17,6 +17,7 @@ from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_cohere import ChatCohere
 
+from . import mayorista
 from . import tools as t
 from .calc_masa import calcular_masa_desde_biga, calcular_masa_pan
 from .ingest import load_index
@@ -38,6 +39,14 @@ Tu trabajo:
    cuando el usuario lo indique (ej. "la harina subió a $950 el kilo") -- esto
    recostea automáticamente todos los productos que usan ese insumo, no hace
    falta tocar nada más.
+
+5. Consultar y cambiar los precios de venta MAYORISTA a cafeterías
+   (herramienta_listar_precios_mayoristas / herramienta_actualizar_precio_mayorista).
+   Esos precios son finales con IVA incluido y son distintos al precio de
+   mostrador del catálogo. Las cotizaciones y la lista de precios mayorista en
+   PDF NO las haces tú: si te las piden, indica que escriban /cotizacion o
+   /listamayorista. Tampoco agregas ni quitas productos de la venta
+   mayorista: para eso indica /agregarmayorista o /quitarmayorista.
 
 Reglas importantes:
 - Distingue bien qué está pidiendo el usuario:
@@ -372,6 +381,20 @@ def herramienta_actualizar_precio_insumo(insumo: str, nuevo_precio: float) -> st
 
 
 @tool
+def herramienta_listar_precios_mayoristas() -> str:
+    """Lista los precios de venta MAYORISTA a cafeterías (niveles A y B, con IVA
+    incluido). Úsala solo si preguntan por precios mayoristas o al por mayor."""
+    return mayorista.listar_precios_texto()
+
+
+@tool
+def herramienta_actualizar_precio_mayorista(producto: str, nivel: str, precio_con_iva: float) -> str:
+    """Cambia el precio mayorista (CON IVA) de un producto en el nivel 'A' o 'B'
+    (ej. "sube el alfajor mayorista B a 2000"). No toca el precio de mostrador."""
+    return mayorista.actualizar_precio(producto, nivel, precio_con_iva)
+
+
+@tool
 def herramienta_listar_variantes(termino: str) -> str:
     """Lista los nombres de producto/variante que coincidan con un termino de
     busqueda (categoria o producto), sin el detalle de costeo. Usar cuando el
@@ -458,6 +481,8 @@ TOOLS = [
     herramienta_buscar_en_recetario,
     herramienta_calcular_masa_pan,
     herramienta_calcular_masa_desde_biga,
+    herramienta_listar_precios_mayoristas,
+    herramienta_actualizar_precio_mayorista,
 ]
 
 

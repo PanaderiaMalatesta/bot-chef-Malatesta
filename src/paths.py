@@ -57,6 +57,12 @@ _CSVS_ADITIVOS = {
 # del repo al volumen (el repo manda, sin fusion).
 _ARCHIVOS_SIEMPRE_DEL_REPO = ["recetas.md"]
 
+# Archivos que solo se editan por chat: el repo los siembra si el volumen no
+# los tiene, y nunca mas los toca. La lista mayorista no se fusiona como los
+# CSV de costeo porque ahi quitar un producto por chat es normal, y la fusion
+# aditiva lo volveria a agregar desde el repo en el siguiente arranque.
+_ARCHIVOS_SOLO_SEMBRAR = ["precios_mayorista.csv"]
+
 
 def _normalizar(texto: str) -> str:
     """Misma normalizacion que tools._normalizar (no se importa de ahi para
@@ -121,6 +127,11 @@ def _sincronizar_data_dir() -> None:
 
     for nombre, columnas_clave in _CSVS_ADITIVOS.items():
         _fusionar_csv_aditivo(nombre, columnas_clave)
+
+    for nombre in _ARCHIVOS_SOLO_SEMBRAR:
+        origen = REPO_DATA_DIR / nombre
+        if origen.exists() and not (DATA_DIR / nombre).exists():
+            shutil.copy2(origen, DATA_DIR / nombre)
 
 
 _sincronizar_data_dir()
