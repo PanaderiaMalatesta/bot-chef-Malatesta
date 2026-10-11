@@ -547,7 +547,63 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
                  _caja_condiciones([f"<b>Validez:</b> esta cotización es válida por {VALIDEZ_DIAS} días."]),
                  Spacer(1, 8), _pie()]
     _doc(ruta, f"Cotización {numero:04d} – Panadería Artesanal Malatesta").build(historia)
+    _registrar_cotizacion(numero, hoy, estado["cliente"], c["total"], ruta)
     return ruta
+
+
+# --- Historial de cotizaciones -------------------------------------------------
+
+REGISTRO_PATH = COTIZACIONES_DIR / "registro.csv"
+_COLUMNAS_REGISTRO = ["numero", "fecha", "cliente", "total", "archivo"]
+
+
+def _registrar_cotizacion(numero: int, fecha: date, cliente: str, total: int, ruta: Path) -> None:
+    fila = pd.DataFrame([[numero, fecha.strftime("%d-%m-%Y"), cliente, total, ruta.name]], columns=_COLUMNAS_REGISTRO)
+    fila.to_csv(REGISTRO_PATH, mode="a", header=not REGISTRO_PATH.exists(), index=False)
+
+
+def listar_cotizaciones() -> list[dict]:
+    """Cotizaciones emitidas, de la mas nueva a la mas antigua. Las que no
+    estan en el registro (emitidas antes de que existiera) se reconstruyen
+    desde el nombre del PDF."""
+    registradas: dict[int, dict] = {}
+    if REGISTRO_PATH.exists():
+        for fila in pd.read_csv(REGISTRO_PATH).itertuples():
+            registradas[int(fila.numero)] = {"numero": int(fila.numero), "fecha": fila.fecha, "cliente": fila.cliente,
+                                             "total": int(fila.total), "archivo": fila.archivo}
+    if COTIZACIONES_DIR.exists():
+        for pdf in COTIZACIONES_DIR.glob("Cotizacion_*.pdf"):
+            m = re.match(r"Cotizacion_(\d+)_(.*)\.pdf$", pdf.name)
+            if m and int(m.group(1)) not in registradas:
+                registradas[int(m.group(1))] = {
+                    "numero": int(m.group(1)),
+                    "fecha": date.fromtimestamp(pdf.stat().st_mtime).strftime("%d-%m-%Y"),
+                    "cliente": m.group(2).replace("_", " ").title(), "total": None, "archivo": pdf.name}
+    return [registradas[n] for n in sorted(registradas, reverse=True)
+            if (COTIZACIONES_DIR / registradas[n]["archivo"]).exists()]
+
+
+def listar_cotizaciones_texto(limite: int = 20) -> str | None:
+    cotizaciones = listar_cotizaciones()
+    if not cotizaciones:
+        return None
+    lineas = [f"Cotizaciones emitidas (últimas {min(limite, len(cotizaciones))} de {len(cotizaciones)}):"]
+    for c in cotizaciones[:limite]:
+        total = f" · {fmt(c['total'])}" if c["total"] is not None else ""
+        lineas.append(f"N° {c['numero']:04d} · {c['fecha']} · {c['cliente']}{total}")
+    lineas.append('\n¿Cuál te reenvío? Responde el número (ej. "1") o "cancelar".')
+    return "\n".join(lineas)
+
+
+def buscar_cotizacion(texto: str) -> tuple[Path | None, str | None]:
+    m = re.search(r"\d+", texto)
+    if not m:
+        return None, 'Responde el número de la cotización (ej. "1") o "cancelar".'
+    numero = int(m.group(0))
+    for c in listar_cotizaciones():
+        if c["numero"] == numero:
+            return COTIZACIONES_DIR / c["archivo"], None
+    return None, f"No encontré la cotización N° {numero:04d}. Responde otro número o \"cancelar\"."
 
 
 # --- Agregar / quitar productos de la venta mayorista -------------------------

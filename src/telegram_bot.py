@@ -152,10 +152,11 @@ async def _iniciar_importacion(update: Update, chat_id: int, texto_crudo: str, m
 # (mayorista.py): los montos nunca pasan por el LLM.
 _chat_cotizacion: dict[int, dict] = {}
 
-_PATRON_COTIZACION = re.compile(
-    r"^\s*cotiza|\b(hacer|haz|hazme|necesito|quiero|generar?|crear?|nueva|armar?|arma|preparar?)\b.*\bcotizaci",
-    re.IGNORECASE,
-)
+# Cualquier mencion de "cotizacion"/"cotizar" en singular inicia el flujo
+# ("hagamos otra cotización" no calzaba con una lista de verbos y caia al
+# LLM, que inventaba preguntas). El plural ("ver las cotizaciones") lo
+# atiende antes _PATRON_VER_COTIZACIONES.
+_PATRON_COTIZACION = re.compile(r"^\s*cotiza|\bcotiza(r|ci[oó]n)\b", re.IGNORECASE)
 _PATRON_LISTA_MAYORISTA = re.compile(r"lista\s+(de\s+)?precios?\s+(al\s+por\s+)?mayor|lista\s+mayorist", re.IGNORECASE)
 
 
@@ -258,6 +259,45 @@ async def lista_mayorista(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _enviar_pdf(update, mayorista.generar_pdf_lista())
 
 
+# Historial: lista las cotizaciones emitidas y reenvia el PDF que se elija.
+# Va antes que _PATRON_COTIZACION: "quiero ver las cotizaciones" no debe
+# iniciar una cotizacion nueva.
+_chat_ver_cotizaciones: set[int] = set()
+
+_PATRON_VER_COTIZACIONES = re.compile(
+    r"\b(ver|veo|lista\w*|muestra\w*|mis|historial|reenv\w*|busca\w*|d[oó]nde)\b.*\bcotizaciones\b"
+    r"|\bcotizaciones\s+(emitidas|anteriores|hechas|guardadas)\b",
+    re.IGNORECASE,
+)
+
+
+async def _mostrar_cotizaciones(update: Update, chat_id: int) -> None:
+    texto = mayorista.listar_cotizaciones_texto()
+    if texto is None:
+        await update.message.reply_text("Todavía no hay cotizaciones emitidas. Para hacer una: /cotizacion")
+        return
+    _chat_ver_cotizaciones.add(chat_id)
+    await update.message.reply_text(texto)
+
+
+async def _reenviar_cotizacion(update: Update, chat_id: int, texto: str) -> None:
+    if _PATRON_CANCELAR_FLUJO.match(texto):
+        _chat_ver_cotizaciones.discard(chat_id)
+        await update.message.reply_text("Ok.")
+        return
+    ruta, error = mayorista.buscar_cotizacion(texto)
+    if error:
+        await update.message.reply_text(error)
+        return
+    _chat_ver_cotizaciones.discard(chat_id)
+    numero = int(ruta.name.split("_")[1])
+    await _enviar_pdf(update, ruta, caption=f"Cotización N° {numero:04d}")
+
+
+async def cotizaciones(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _mostrar_cotizaciones(update, update.effective_chat.id)
+
+
 async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     archivo = await update.message.photo[-1].get_file()
@@ -277,7 +317,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
         "fabricación para un pedido, o el costo de producción del día. "
-        "Para venta mayorista: /cotizacion, /listamayorista, /agregarmayorista o /quitarmayorista."
+        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /listamayorista, "
+        "/agregarmayorista o /quitarmayorista."
     )
 
 
@@ -287,6 +328,18 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if chat_id in _chat_cotizacion:
         await _continuar_cotizacion(update, chat_id, texto)
+        return
+
+    if chat_id in _chat_ver_cotizaciones:
+        # solo un numero (o cancelar) continua; cualquier otra cosa sale del
+        # historial y se atiende como mensaje normal
+        if re.fullmatch(r"\s*(n[°º.]?\s*)?\d+\s*", texto, re.IGNORECASE) or _PATRON_CANCELAR_FLUJO.match(texto):
+            await _reenviar_cotizacion(update, chat_id, texto)
+            return
+        _chat_ver_cotizaciones.discard(chat_id)
+
+    if _PATRON_VER_COTIZACIONES.search(texto):
+        await _mostrar_cotizaciones(update, chat_id)
         return
 
     if chat_id in _chat_gestion_mayorista:
@@ -355,6 +408,7 @@ def main() -> None:
     app.add_handler(CommandHandler("listamayorista", lista_mayorista))
     app.add_handler(CommandHandler("agregarmayorista", agregar_mayorista))
     app.add_handler(CommandHandler("quitarmayorista", quitar_mayorista))
+    app.add_handler(CommandHandler("cotizaciones", cotizaciones))
     app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
     app.run_polling()
