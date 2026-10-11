@@ -334,6 +334,31 @@ _PALABRAS_SELECCION = {"el", "la", "los", "las", "y", "e", "de", "del", "lista",
                        "n", "opcion", "opciones", "producto", "productos", "item", "items", "quiero", "solo"}
 
 
+# En la pregunta de cantidades se puede corregir la seleccion antes de
+# responder: "saca los muffin", "quita el 6", "sin berlines", o volver a
+# elegir con "cambiar productos".
+_PATRON_SACAR = re.compile(r"\b(sac|quit|elimin|borr|remuev|descart)\w*|\bsin\b|\bmenos\b", re.IGNORECASE)
+_PATRON_CAMBIAR_SELECCION = re.compile(r"\b(cambi|volv|otros?\s+productos|elegir\s+de\s+nuevo)\w*", re.IGNORECASE)
+
+
+def _sacar_de_seleccion(estado: dict, texto: str) -> str | None:
+    """Quita de la seleccion los productos nombrados (por numero de la lista
+    o por nombre). Devuelve error si no reconoce ninguno."""
+    df = cargar_precios()
+    seleccion = estado["seleccion"]
+    numeros = {int(n) - 1 for n in re.findall(r"\d+", texto)}
+    buscados = _tokens(re.sub(r"\d+", " ", texto))
+    quitar = [i for i in seleccion
+              if i in numeros or buscados & _tokens(df.iloc[i]["producto"])]
+    if not quitar:
+        return ("No reconocí qué producto sacar. Indica su número de la lista (ej. \"quita el 6\") "
+                "o su nombre (ej. \"saca los muffin\").")
+    estado["seleccion"] = [i for i in seleccion if i not in quitar]
+    if not estado["seleccion"]:
+        estado["preguntando"] = "productos"
+    return None
+
+
 def seleccion_sin_cantidades(texto: str) -> list[int] | None:
     """Si la respuesta es solo numeros de la lista (ej. "1, 4, 9"), devuelve
     sus indices (base 0); si trae cantidades o nombres, None."""
@@ -395,6 +420,11 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
             return error
         estado["items"] = items
     elif paso == "cantidades":
+        if _PATRON_SACAR.search(texto):
+            return _sacar_de_seleccion(estado, texto)
+        if _PATRON_CAMBIAR_SELECCION.search(texto):
+            estado["preguntando"] = "productos"
+            return None
         numeros = [int(n) for n in re.findall(r"\d+", texto.replace(".", ""))]
         seleccion = estado["seleccion"]
         if len(numeros) == 1:
