@@ -423,40 +423,36 @@ cortar, para mejores cortes y textura.
 
 ## Croissants (categoría nueva, recetario interno en ampliación)
 
-### Croissant Plano — receta base de laminado (rinde 12 croissants grandes)
-Ingredientes de la masa: harina sin polvos de hornear (idealmente harina de
-fuerza/panadera, aunque también sirve harina común) 600 g, azúcar blanca
-60 g, sal 12 g, levadura fresca 20 g (la receta original pedía 10 g de
-levadura instantánea; se reemplazó por fresca usando el doble de cantidad),
-agua tibia 360 mL.
-Mantequilla para el laminado: mantequilla sin sal a temperatura ambiente
-250 g.
-Para barnizar: 1 huevo + 1 cucharada (15 mL) de agua a temperatura ambiente.
+### Croissant Plano — receta base de laminado (lote rinde 24 croissants)
+Receta de Raúl (oct 2026), base de 12 croissants multiplicada por 2.
+Ingredientes de la masa: harina de panadería de alto contenido proteico
+(harina fortaleza plus) 500 g, azúcar 60 g, sal 2 g, levadura fresca 10 g,
+leche tibia 300 mL preparada con leche en polvo: 36 g de leche en polvo +
+264 mL de agua tibia (1 litro de leche = 120 g de leche en polvo + 880 mL de
+agua).
+Mantequilla para el laminado: mantequilla sin sal 200 g.
+Para barnizar: 2 huevos + 2 cucharadas (30 mL) de agua a temperatura ambiente.
 
-Procedimiento:
-**Masa:** mezclar los ingredientes secos en un bowl, hacer un hoyo y verter
-los líquidos (agua tibia con la levadura fresca disuelta) → amasar 20 min a
-mano o 10 min en máquina a velocidad media-baja → dejar leudar 1 hora en
-lugar tibio → desinflar, aplanar ligeramente y refrigerar envuelta en film
-30 min.
-**Mantequilla de laminado:** envolver entre papel mantequilla formando un
-sobre tipo A4 → golpear suavemente con rodillo hasta suavizar → estirar de
-manera uniforme → refrigerar.
-**Laminado:** estirar la masa a 1,5 veces el tamaño de la mantequilla →
-colocar la mantequilla dejando 3 cm sin cubrir en la base → doblar el
-tercio superior sobre la mantequilla y luego el inferior encima (3 capas) →
-refrigerar 30-60 min si hace falta.
-**Primer pliegue (book fold):** estirar a ~60 cm → doblar ambos extremos al
-centro y luego doblar por la mitad (4 capas) → refrigerar 30 min.
-**Segundo pliegue (tri-fold):** estirar en dirección perpendicular → doblar
-en tres (9 capas totales) → refrigerar 30 min o toda la noche.
-**Formado:** estirar la masa a 30x40 cm (5-7 mm de grosor) → cortar
-triángulos de 10 cm de base × 30 cm de altura → estirar ligeramente cada
-triángulo → enrollar desde la base hacia la punta, jalando la masa durante
-el proceso → presionar la punta bajo el croissant.
-**Fermentación y horneado:** colocar en bandeja con papel mantequilla →
-dejar leudar 2 horas en lugar cálido → barnizar con la mezcla de huevo y
-agua → hornear a 200°C por 25-30 minutos hasta dorar.
+Procedimiento (para el lote de 24):
+**Leche:** disolver los 36 g de leche en polvo en los 264 mL de agua tibia.
+**Masa:** colocar la harina en un recipiente y hacer un hueco en el centro →
+verter parte de la leche tibia y disolver ahí la levadura fresca → agregar el
+azúcar y la sal (2 g) → mezclar hasta obtener una masa bastante firme,
+usando la leche restante según sea necesario → raspar los lados del
+recipiente → cubrir con un paño y dejar reposar en un lugar fresco durante
+unas 10 horas.
+**Empaste:** aplanar la masa con el puño sobre el mesón → cubrirla con la
+mantequilla (firme pero flexible) → doblar la masa envolviendo la
+mantequilla, como en un hojaldre.
+**Vueltas:** dar dos vueltas → reposar 15 minutos → dar una tercera vuelta →
+reposar de nuevo antes de formar.
+**Formado:** estirar la masa a 2-3 mm de grosor → cortar 24 triángulos de
+7-8 cm (12 por cada mitad de la receta) → enrollar cada triángulo desde la
+base y curvar los extremos para formar una media luna.
+**Fermentación y horneado:** colocar en bandeja con la punta hacia arriba →
+cubrir con un paño y dejar leudar 1,5 a 2 horas en un lugar templado →
+pintar con huevo batido (2 huevos + 30 mL de agua) → hornear 15 minutos a
+220 °C.
 
 ## Tortas (categoría nueva, recetario interno en ampliación)
 

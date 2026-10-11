@@ -193,14 +193,15 @@ Brownie,,Masa,harina_0000,43.7778,g,9.0
 Brownie,,Masa,cacao_polvo,6.2222,g,9.0
 Brownie,,Masa,sal,0.7556,g,9.0
 Brownie,,Masa,nueces,42.5556,g,9.0
-Croissant,Plano,Masa,harina_0000,50.0,g,12.0
-Croissant,Plano,Masa,azucar,5.0,g,12.0
-Croissant,Plano,Masa,sal,1.0,g,12.0
-Croissant,Plano,Masa,levadura_fresca,1.6667,g,12.0
-Croissant,Plano,Masa,agua,30.0,mL,12.0
-Croissant,Plano,Laminado,mantequilla,20.8333,g,12.0
-Croissant,Plano,Barnizado,huevo,0.0833,unidad,12.0
-Croissant,Plano,Barnizado,agua,1.25,mL,12.0
+Croissant,Plano,Masa,harina_fortaleza_plus,20.8333,g,24.0
+Croissant,Plano,Masa,azucar,2.5,g,24.0
+Croissant,Plano,Masa,sal,0.0833,g,24.0
+Croissant,Plano,Masa,levadura_fresca,0.4167,g,24.0
+Croissant,Plano,Masa,leche_polvo,1.5,g,24.0
+Croissant,Plano,Masa,agua,11.0,mL,24.0
+Croissant,Plano,Laminado,mantequilla,8.3333,g,24.0
+Croissant,Plano,Barnizado,huevo,0.0833,unidad,24.0
+Croissant,Plano,Barnizado,agua,1.25,mL,24.0
 Pie de limón,,Masa,mantequilla,125.0,g,1.0
 Pie de limón,,Masa,huevo,1.16,unidad,1.0
 .0,,,,,,
