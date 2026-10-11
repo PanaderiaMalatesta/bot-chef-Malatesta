@@ -397,6 +397,13 @@ def herramienta_actualizar_precio_mayorista(producto: str, precio_con_iva: float
 
 
 @tool
+def herramienta_actualizar_minimo_mayorista(producto: str, minimo: int) -> str:
+    """Cambia el pedido mínimo de un producto mayorista, en su unidad de venta
+    (ej. "el brownie mayorista se vende desde 9 unidades")."""
+    return mayorista.actualizar_minimo(producto, minimo)
+
+
+@tool
 def herramienta_listar_variantes(termino: str) -> str:
     """Lista los nombres de producto/variante que coincidan con un termino de
     busqueda (categoria o producto), sin el detalle de costeo. Usar cuando el
@@ -485,6 +492,7 @@ TOOLS = [
     herramienta_calcular_masa_desde_biga,
     herramienta_listar_precios_mayoristas,
     herramienta_actualizar_precio_mayorista,
+    herramienta_actualizar_minimo_mayorista,
 ]
 
 

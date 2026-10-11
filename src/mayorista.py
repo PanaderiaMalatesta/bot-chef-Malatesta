@@ -36,7 +36,6 @@ COTIZACIONES_DIR = DATA_DIR / "cotizaciones"
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
 
 IVA = 0.19
-MINIMO_UNIDADES = 12
 UNIDADES_DESCUENTO = 24  # de un mismo producto
 DESCUENTO_VOLUMEN = 0.10
 VALIDEZ_DIAS = 15
@@ -47,7 +46,7 @@ PIE = (
     f"Pedidos y consultas: <b>{TELEFONO}</b> (WhatsApp) · oficialmalatesta@gmail.com · malatestachile.cl"
 )
 CONDICIONES = [
-    f"<b>Pedido mínimo:</b> {MINIMO_UNIDADES} unidades por despacho; puedes combinar productos.",
+    "<b>Pedido mínimo por producto</b> según la lista de precios; puedes combinar productos libremente.",
     f"<b>Descuento por volumen:</b> desde {UNIDADES_DESCUENTO} unidades de un mismo producto, "
     f"<b>{DESCUENTO_VOLUMEN:.0%} de descuento</b> en todas las unidades de ese producto.",
     "<b>Facturas</b> siempre surtidas (membrillo, pastelera y manjar).",
@@ -86,10 +85,31 @@ def cargar_precios() -> pd.DataFrame:
     if "precio" not in df.columns:
         # formato antiguo con niveles A/B: el precio unico es el de nivel A
         df = df.rename(columns={"precio_a": "precio"}).drop(columns=["precio_b"], errors="ignore")
+    # minimo de venta por producto (en su unidad) y unidad de venta ("u" o
+    # "kg", ej. galletas por kilo); los CSV antiguos no traen estas columnas
+    if "minimo" not in df.columns:
+        df["minimo"] = 1
+    if "unidad" not in df.columns:
+        df["unidad"] = "u"
     for columna in ("detalle", "receta_producto", "receta_variante"):
         df[columna] = df[columna].fillna("").astype(str)
     df["precio"] = df["precio"].astype(int)
+    df["minimo"] = df["minimo"].fillna(1).astype(int)
+    df["unidad"] = df["unidad"].fillna("u").astype(str).replace("", "u")
     return df
+
+
+def _cant(cantidad: int, unidad: str) -> str:
+    """'12' para unidades, '2 kg' para productos por kilo."""
+    return f"{cantidad} {unidad}" if unidad != "u" else str(cantidad)
+
+
+def _buscar_unico(df: pd.DataFrame, producto: str) -> tuple[int | None, str | None]:
+    coincidencias = [i for i, p in enumerate(df["producto"]) if _normalizar(producto) in _normalizar(p)]
+    if len(coincidencias) != 1:
+        opciones = ", ".join(df["producto"])
+        return None, f"No encontré un único producto mayorista para '{producto}'. Opciones: {opciones}"
+    return coincidencias[0], None
 
 
 def neto(precio_con_iva: float) -> int:
@@ -113,18 +133,32 @@ def listar_precios_texto() -> str:
         if fila.categoria != categoria:
             categoria = fila.categoria
             lineas.append(f"\n{categoria.upper()}")
-        lineas.append(f"{i}. {fila.producto} — {fmt(fila.precio)} · {UNIDADES_DESCUENTO}+ u: "
-                      f"{fmt(con_descuento(fila.precio))}")
+        por = "/kg" if fila.unidad == "kg" else ""
+        lineas.append(f"{i}. {fila.producto} — {fmt(fila.precio)}{por} · {UNIDADES_DESCUENTO}+ {fila.unidad}: "
+                      f"{fmt(con_descuento(fila.precio))}{por} · mín. {_cant(fila.minimo, fila.unidad)}")
     return "\n".join(lineas)
+
+
+def actualizar_minimo(producto: str, minimo: int) -> str:
+    df = cargar_precios()
+    i, error = _buscar_unico(df, producto)
+    if error:
+        return error
+    if minimo < 1:
+        return "El mínimo debe ser 1 o más."
+    anterior = int(df.at[i, "minimo"])
+    df.at[i, "minimo"] = int(minimo)
+    df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
+    unidad = df.at[i, "unidad"]
+    return (f"{df.at[i, 'producto']}: mínimo {_cant(anterior, unidad)} → {_cant(int(minimo), unidad)} "
+            "por pedido.")
 
 
 def actualizar_precio(producto: str, precio_con_iva: float) -> str:
     df = cargar_precios()
-    coincidencias = [i for i, p in enumerate(df["producto"]) if _normalizar(producto) in _normalizar(p)]
-    if len(coincidencias) != 1:
-        opciones = ", ".join(df["producto"])
-        return f"No encontré un único producto mayorista para '{producto}'. Opciones: {opciones}"
-    i = coincidencias[0]
+    i, error = _buscar_unico(df, producto)
+    if error:
+        return error
     anterior = int(df.at[i, "precio"])
     df.at[i, "precio"] = int(round(precio_con_iva))
     df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
@@ -170,33 +204,47 @@ def _pie() -> Table:
     return pie
 
 
+# Niveles de compactacion (padding de filas, ancho del logo) que se prueban
+# en orden hasta que la lista quepa en una pagina: la lista crece con cada
+# producto agregado por chat y el pie no debe saltar a una segunda hoja.
+_COMPACTACION_LISTA = [(3, 34 * mm), (2, 30 * mm), (1.5, 26 * mm), (1, 22 * mm), (0.5, 18 * mm)]
+
+
 def generar_pdf_lista(ruta: Path | None = None) -> Path:
     """Lista de precios mayorista completa (la misma estructura del PDF que
-    se reparte a las cafeterias)."""
+    se reparte a las cafeterias). Se compacta sola para caber en una pagina."""
     df = cargar_precios()
     ruta = ruta or (COTIZACIONES_DIR / "Lista_precios_mayorista_Malatesta.pdf")
     ruta.parent.mkdir(parents=True, exist_ok=True)
+    for padding, ancho_logo in _COMPACTACION_LISTA:
+        doc = _doc(ruta, "Lista de precios mayorista – Panadería Artesanal Malatesta")
+        doc.build(_historia_lista(df, padding, ancho_logo))
+        if doc.page == 1:
+            break
+    return ruta
 
+
+def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list:
     data = [
-        ["Producto", f"PRECIO · 1 a {UNIDADES_DESCUENTO - 1} unidades", "",
+        ["Producto", "Mín.", "PRECIO UNITARIO", "",
          f"{UNIDADES_DESCUENTO}+ UNIDADES · −{DESCUENTO_VOLUMEN:.0%}", ""],
-        ["", "Neto", "Con IVA", "Neto", "Con IVA"],
+        ["", "", "Neto", "Con IVA", "Neto", "Con IVA"],
     ]
     estilo = [
-        ("SPAN", (1, 0), (2, 0)), ("SPAN", (3, 0), (4, 0)), ("SPAN", (0, 0), (0, 1)),
+        ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (3, 0)), ("SPAN", (4, 0), (5, 0)),
         ("BACKGROUND", (0, 0), (-1, 1), CAFE), ("TEXTCOLOR", (0, 0), (-1, 1), colors.white),
         ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 9), ("FONTSIZE", (0, 1), (-1, 1), 8),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEAFTER", (2, 0), (2, -1), 0.8, TERRA),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("LINEAFTER", (1, 0), (1, -1), 0.4, CREMA2), ("LINEAFTER", (3, 0), (3, -1), 0.8, TERRA),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), padding), ("TOPPADDING", (0, 0), (-1, -1), padding),
     ]
     r = 2
     categoria, alterna = None, 0
     for fila in df.itertuples():
         if fila.categoria != categoria:
             categoria, alterna = fila.categoria, 0
-            data.append([categoria.upper(), "", "", "", ""])
+            data.append([categoria.upper(), "", "", "", "", ""])
             estilo += [("SPAN", (0, r), (-1, r)), ("BACKGROUND", (0, r), (-1, r), CREMA2),
                        ("TEXTCOLOR", (0, r), (-1, r), TERRA), ("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
                        ("FONTSIZE", (0, r), (-1, r), 8.5), ("ALIGN", (0, r), (-1, r), "LEFT")]
@@ -206,24 +254,22 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
             nombre += f" <font color='#6B5B50' size='7.5'>({fila.detalle})</font>"
         rebajado = con_descuento(fila.precio)
         neto_rebajado = round(neto(fila.precio) * (1 - DESCUENTO_VOLUMEN))  # igual que en la cotizacion
-        data.append([Paragraph(nombre, _ST_NORMAL), fmt(neto(fila.precio)), fmt(fila.precio),
-                     fmt(neto_rebajado), fmt(rebajado)])
+        data.append([Paragraph(nombre, _ST_NORMAL), _cant(fila.minimo, fila.unidad), fmt(neto(fila.precio)),
+                     fmt(fila.precio), fmt(neto_rebajado), fmt(rebajado)])
         estilo += [("FONTSIZE", (1, r), (-1, r), 9.5), ("TEXTCOLOR", (1, r), (-1, r), CAFE),
-                   ("FONTNAME", (2, r), (2, r), "Helvetica-Bold"), ("FONTNAME", (4, r), (4, r), "Helvetica-Bold"),
+                   ("FONTNAME", (3, r), (3, r), "Helvetica-Bold"), ("FONTNAME", (5, r), (5, r), "Helvetica-Bold"),
                    ("LINEBELOW", (0, r), (-1, r), 0.3, CREMA2)]
         if alterna % 2 == 1:
             estilo.append(("BACKGROUND", (0, r), (-1, r), CREMA))
         alterna += 1
         r += 1
 
-    tabla = Table(data, colWidths=[64 * mm, 27 * mm, 27 * mm, 27 * mm, 27 * mm], repeatRows=2)
+    tabla = Table(data, colWidths=[58 * mm, 16 * mm, 24.5 * mm, 24.5 * mm, 24.5 * mm, 24.5 * mm], repeatRows=2)
     tabla.setStyle(TableStyle(estilo))
 
-    # logo mas chico que en la cotizacion: la lista crece con cada producto
-    # agregado y debe seguir cabiendo en una pagina
     historia = _encabezado("Lista de precios mayorista",
                            "Productos artesanales para tu cafetería · Precios por unidad, IVA incluido",
-                           ancho_logo=34 * mm)
+                           ancho_logo=ancho_logo)
     historia += [
         tabla, Spacer(1, 4),
         Paragraph("<font size='7.5' color='#6B5B50'>Precios finales con IVA incluido. El valor neto se muestra "
@@ -235,8 +281,7 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
         _caja_condiciones(["<b>Vigencia:</b> precios por unidad, revisables cada 3 meses según el costo de los insumos."]),
         Spacer(1, 8), _pie(),
     ]
-    _doc(ruta, "Lista de precios mayorista – Panadería Artesanal Malatesta").build(historia)
-    return ruta
+    return historia
 
 
 # --- Cotizacion: flujo de preguntas -------------------------------------------
@@ -275,7 +320,8 @@ def siguiente_pregunta(estado: dict) -> str:
                 + listar_precios_texto())
     if paso == "cantidades":
         df = cargar_precios()
-        nombres = "\n".join(f"- {df.iloc[i]['producto']}" for i in estado["seleccion"])
+        nombres = "\n".join(f"- {df.iloc[i]['producto']} (mín. {_cant(int(df.iloc[i]['minimo']), df.iloc[i]['unidad'])})"
+                            for i in estado["seleccion"])
         return (f"¿Cuántas unidades por despacho de cada uno?\n{nombres}\n\n"
                 "Responde en el mismo orden (ej. \"24, 12, 12\"), o un solo número si es igual para todos.")
     if paso == "confirmacion":
@@ -340,10 +386,16 @@ def interpretar_productos(texto: str) -> tuple[list[dict], str | None]:
 
 
 def _items_validados(cantidades: dict[int, int]) -> tuple[list[dict], str | None]:
-    total = sum(cantidades.values())
-    if total < MINIMO_UNIDADES:
-        return [], (f"El pedido suma {total} unidades y el mínimo mayorista es {MINIMO_UNIDADES}. "
-                    "Agrega más unidades.")
+    """Cada producto debe cumplir su minimo de venta (no hay minimo total)."""
+    df = cargar_precios()
+    faltan = []
+    for i, c in sorted(cantidades.items()):
+        fila = df.iloc[i]
+        if c < fila["minimo"]:
+            faltan.append(f"- {fila['producto']}: se vende desde {_cant(int(fila['minimo']), fila['unidad'])} "
+                          f"(pediste {_cant(c, fila['unidad'])})")
+    if faltan:
+        return [], "No se cumple el mínimo por producto:\n" + "\n".join(faltan) + "\n\nIndica las cantidades de nuevo."
     return [{"indice": i, "cantidad": c} for i, c in sorted(cantidades.items())], None
 
 
@@ -406,6 +458,7 @@ def calcular(estado: dict) -> dict:
         bruto_linea = precio * it["cantidad"]
         descuento_linea = round(bruto_linea * DESCUENTO_VOLUMEN) if con_volumen else 0
         lineas.append({"producto": fila["producto"], "detalle": fila["detalle"], "cantidad": it["cantidad"],
+                       "unidad": fila["unidad"],
                        "precio": precio, "descuento_linea": descuento_linea,
                        "subtotal": bruto_linea - descuento_linea, "con_volumen": con_volumen})
 
@@ -503,10 +556,11 @@ def formatear_resumen(estado: dict) -> str:
         lineas.append(f"RUT / razón social: {estado['rut']}")
     if estado["contacto"]:
         lineas.append(f"Contacto: {estado['contacto']}")
-    lineas.append(f"\n{c['unidades']} unidades por despacho:")
+    lineas.append("\nDetalle por despacho:")
     for l in c["lineas"]:
         marca = (f" − {DESCUENTO_VOLUMEN:.0%} ({fmt(l['descuento_linea'])})" if l["con_volumen"] else "")
-        lineas.append(f"- {l['cantidad']} × {l['producto']} a {fmt(l['precio'])} neto{marca} = {fmt(l['subtotal'])}")
+        lineas.append(f"- {_cant(l['cantidad'], l['unidad'])} × {l['producto']} a {fmt(l['precio'])} neto{marca} "
+                      f"= {fmt(l['subtotal'])}")
     cerca = [l for l in c["lineas"] if UNIDADES_DESCUENTO - 6 <= l["cantidad"] < UNIDADES_DESCUENTO]
     for l in cerca:
         lineas.append(f"(Con {UNIDADES_DESCUENTO - l['cantidad']} más de {l['producto']} llega a "
@@ -575,7 +629,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
             dcto = Paragraph(f"{DESCUENTO_VOLUMEN:.0%}<br/>−{fmt(l['descuento_linea'])}", _st_dcto)
         else:
             dcto = "—"
-        data.append([Paragraph(nombre, _ST_NORMAL), str(l["cantidad"]), fmt(l["precio"]), dcto,
+        data.append([Paragraph(nombre, _ST_NORMAL), _cant(l["cantidad"], l["unidad"]), fmt(l["precio"]), dcto,
                      fmt(l["subtotal"])])
     n_lineas = len(data)
     totales = []
@@ -751,6 +805,8 @@ def siguiente_pregunta_gestion(estado: dict) -> str:
     if paso == "agregar_precio":
         return (_referencia_precios(estado) + "\n\n¿A cuánto se vende la unidad al por mayor, con IVA "
                 f"incluido? (desde {UNIDADES_DESCUENTO} u se descuenta {DESCUENTO_VOLUMEN:.0%} automáticamente)")
+    if paso == "agregar_minimo":
+        return "¿Cuál es el pedido mínimo de este producto, en unidades? (ej. \"6\")"
     if paso == "agregar_confirmacion":
         return formatear_resumen_agregar(estado)
     if paso == "quitar_elegir":
@@ -782,7 +838,8 @@ def formatear_resumen_agregar(estado: dict) -> str:
             f"{_ganancia(estado['precio'], costo)}\n"
             f"Con {UNIDADES_DESCUENTO}+ u: {fmt(con_descuento(estado['precio']))} con IVA "
             f"(neto {fmt(neto(con_descuento(estado['precio'])))})"
-            f"{_ganancia(con_descuento(estado['precio']), costo)}\n\n"
+            f"{_ganancia(con_descuento(estado['precio']), costo)}\n"
+            f"Mínimo por pedido: {estado['minimo']} u\n\n"
             "¿Lo agrego? (sí / cancelar)")
 
 
@@ -897,6 +954,14 @@ def aplicar_respuesta_gestion(estado: dict, texto: str) -> str | None:
         if not precio or precio < 100:
             return "Indica el precio por unidad con IVA, en pesos (ej. \"1200\")."
         estado["precio"] = precio
+        estado["preguntando"] = "agregar_minimo"
+        return None
+
+    if paso == "agregar_minimo":
+        m = re.search(r"\d+", texto)
+        if not m or int(m.group(0)) < 1:
+            return "Indica el mínimo como un número de unidades (ej. \"6\")."
+        estado["minimo"] = int(m.group(0))
         estado["preguntando"] = "agregar_confirmacion"
         return None
 
@@ -921,7 +986,7 @@ def guardar_gestion(estado: dict) -> str:
 
     nueva = {"categoria": estado["categoria"], "producto": estado["nombre"], "detalle": estado["detalle"],
              "receta_producto": estado["receta_producto"], "receta_variante": "|".join(estado["variantes"]),
-             "precio": estado["precio"]}
+             "precio": estado["precio"], "minimo": estado.get("minimo", 1), "unidad": "u"}
     # queda junto a los de su categoria (o al final si la categoria es nueva)
     misma = [i for i, c in enumerate(df["categoria"]) if c == estado["categoria"]]
     posicion = misma[-1] + 1 if misma else len(df)

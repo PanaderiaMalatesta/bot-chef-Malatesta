@@ -1,12 +1,13 @@
-categoria,producto,detalle,receta_producto,receta_variante,precio
-Bollería,Factura surtida,"membrillo, pastelera y manjar",Factura,Membrillo|Pastelera|Manjar,1000
-Bollería,Medialuna tradicional,,Medialuna,Tradicional,1150
-Bollería,Croissant plano,,Croissant,Plano,1150
-Berlines,Berlín de pastelera,,Berlin,Pastelera,900
-Berlines,Berlín de membrillo,,Berlin,Membrillo,1000
-Berlines,Berlín de manjar,,Berlin,Manjar,1100
-Muffins,Muffin vainilla chispas,,Muffin,VainillaChispas,1000
-Muffins,Muffin arándanos glaseado,,Muffin,ArandanosGlaseado,1000
-Muffins,Muffin manzana crumble,,Muffin,ManzanaCrumble,1050
-Muffins,Muffin chocolate ganache,,Muffin,ChocolateGanache,1200
-Alfajores,Alfajor marplatense,,Alfajor,Marplatense,2000
+categoria,producto,detalle,receta_producto,receta_variante,precio,minimo,unidad
+Bollería,Factura surtida,"membrillo, pastelera y manjar",Factura,Membrillo|Pastelera|Manjar,1000,12,u
+Bollería,Medialuna tradicional,,Medialuna,Tradicional,1150,12,u
+Bollería,Croissant plano,,Croissant,Plano,1150,12,u
+Berlines,Berlín de pastelera,,Berlin,Pastelera,900,6,u
+Berlines,Berlín de membrillo,,Berlin,Membrillo,1000,6,u
+Berlines,Berlín de manjar,,Berlin,Manjar,1100,6,u
+Muffins,Muffin vainilla chispas,,Muffin,VainillaChispas,1000,6,u
+Muffins,Muffin arándanos glaseado,,Muffin,ArandanosGlaseado,1000,6,u
+Muffins,Muffin manzana crumble,,Muffin,ManzanaCrumble,1050,6,u
+Muffins,Muffin chocolate ganache,,Muffin,ChocolateGanache,1200,6,u
+Alfajores,Alfajor marplatense,,Alfajor,Marplatense,2000,6,u
+Brownies,Brownie,,Brownie,,2500,9,u
