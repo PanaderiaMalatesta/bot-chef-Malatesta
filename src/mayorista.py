@@ -56,7 +56,7 @@ CONDICIONES = [
     f"producto y {DESCUENTO_NIVEL_2:.0%} desde el triple de esa cantidad, <b>sobre el total comprado de ese "
     "producto</b>.",
     "<b>Facturas</b> siempre surtidas (membrillo, pastelera y manjar).",
-    "<b>Pedidos</b> con 48 horas de anticipación.",
+    "<b>Pedidos</b> con 24 horas de anticipación.",
     "<b>Pago:</b> contra entrega.",
     "<b>Despacho</b> en Villarrica; otras zonas se coordinan.",
 ]
@@ -161,7 +161,7 @@ def fmt(n: float) -> str:
 
 def listar_precios_texto() -> str:
     df = cargar_precios()
-    lineas = ["Precios mayoristas por unidad, IVA incluido (descuento por volumen desde la cantidad "
+    lineas = ["Precios mayoristas NETOS por unidad, el IVA se suma en el total (descuento por volumen desde la cantidad "
               "indicada de cada producto):"]
     categoria = None
     for i, fila in enumerate(df.itertuples(), start=1):
@@ -173,15 +173,22 @@ def listar_precios_texto() -> str:
     return "\n".join(lineas)
 
 
+def neto_con_descuento(precio_con_iva: int, pct: float) -> int:
+    """Neto unitario con descuento, calculado igual que en la cotizacion
+    (el descuento se aplica sobre el neto)."""
+    return round(neto(precio_con_iva) * (1 - pct))
+
+
 def _escalones(precio: int, desde: float, unidad: str, con_precio: bool = True) -> str:
-    """'$1.000 · −5% desde 24: $950 · −10% desde 72: $900' (o 'sin descuento')."""
+    """Precios NETOS: '$840 · −5% desde 24: $798 · −10% desde 72: $756' (o
+    'sin descuento'). El IVA se agrega solo en los totales."""
     por = "/kg" if unidad == "kg" else ""
-    partes = [f"{fmt(precio)}{por}"] if con_precio else []
+    partes = [f"{fmt(neto(precio))}{por}"] if con_precio else []
     if desde > 0:
         partes += [f"−{DESCUENTO_NIVEL_1:.0%} desde {_cant(desde, unidad)}: "
-                   f"{fmt(con_descuento(precio, DESCUENTO_NIVEL_1))}{por}",
+                   f"{fmt(neto_con_descuento(precio, DESCUENTO_NIVEL_1))}{por}",
                    f"−{DESCUENTO_NIVEL_2:.0%} desde {_cant(desde * FACTOR_NIVEL_2, unidad)}: "
-                   f"{fmt(con_descuento(precio, DESCUENTO_NIVEL_2))}{por}"]
+                   f"{fmt(neto_con_descuento(precio, DESCUENTO_NIVEL_2))}{por}"]
     else:
         partes.append("sin descuento")
     return " · ".join(partes)
@@ -292,19 +299,20 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
 
 def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list:
     data = [
-        ["Producto", "Mín.", "PRECIO UNITARIO", "",
+        # solo precios NETOS: el IVA se agrega en el total de la cotizacion
+        ["Producto", "Mín.", "PRECIO\nNETO",
          f"−{DESCUENTO_NIVEL_1:.0%} POR VOLUMEN", "", f"−{DESCUENTO_NIVEL_2:.0%} POR VOLUMEN", ""],
-        ["", "", "Neto", "Con IVA", "Desde", "Con IVA", "Desde", "Con IVA"],
+        ["", "", "", "Desde", "Neto", "Desde", "Neto"],
     ]
     estilo = [
-        ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (3, 0)), ("SPAN", (4, 0), (5, 0)),
-        ("SPAN", (6, 0), (7, 0)),
+        ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)), ("SPAN", (3, 0), (4, 0)),
+        ("SPAN", (5, 0), (6, 0)),
         ("BACKGROUND", (0, 0), (-1, 1), CAFE), ("TEXTCOLOR", (0, 0), (-1, 1), colors.white),
         ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
         ("FONTSIZE", (0, 0), (-1, 0), 8.5), ("FONTSIZE", (0, 1), (-1, 1), 8),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LINEAFTER", (1, 0), (1, -1), 0.4, CREMA2), ("LINEAFTER", (3, 0), (3, -1), 0.8, TERRA),
-        ("LINEAFTER", (5, 0), (5, -1), 0.8, TERRA),
+        ("LINEAFTER", (1, 0), (1, -1), 0.4, CREMA2), ("LINEAFTER", (2, 0), (2, -1), 0.8, TERRA),
+        ("LINEAFTER", (4, 0), (4, -1), 0.8, TERRA),
         ("BOTTOMPADDING", (0, 0), (-1, -1), padding), ("TOPPADDING", (0, 0), (-1, -1), padding),
     ]
     r = 2
@@ -312,7 +320,7 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
     for fila in df.itertuples():
         if fila.categoria != categoria:
             categoria, alterna = fila.categoria, 0
-            data.append([categoria.upper(), "", "", "", "", "", "", ""])
+            data.append([categoria.upper(), "", "", "", "", "", ""])
             estilo += [("SPAN", (0, r), (-1, r)), ("BACKGROUND", (0, r), (-1, r), CREMA2),
                        ("TEXTCOLOR", (0, r), (-1, r), TERRA), ("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
                        ("FONTSIZE", (0, r), (-1, r), 8.5), ("ALIGN", (0, r), (-1, r), "LEFT")]
@@ -322,34 +330,34 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
             nombre += f" <font color='#6B5B50' size='7.5'>({fila.detalle})</font>"
         if fila.descuento_desde > 0:
             columnas_dcto = [_cant(fila.descuento_desde, fila.unidad),
-                             fmt(con_descuento(fila.precio, DESCUENTO_NIVEL_1)),
+                             fmt(neto_con_descuento(fila.precio, DESCUENTO_NIVEL_1)),
                              _cant(fila.descuento_desde * FACTOR_NIVEL_2, fila.unidad),
-                             fmt(con_descuento(fila.precio, DESCUENTO_NIVEL_2))]
+                             fmt(neto_con_descuento(fila.precio, DESCUENTO_NIVEL_2))]
         else:
             columnas_dcto = ["—", "—", "—", "—"]
         data.append([Paragraph(nombre, _ST_NORMAL), _cant(fila.minimo, fila.unidad), fmt(neto(fila.precio)),
-                     fmt(fila.precio), *columnas_dcto])
+                     *columnas_dcto])
         estilo += [("FONTSIZE", (1, r), (-1, r), 9.5), ("TEXTCOLOR", (1, r), (-1, r), CAFE),
-                   ("FONTNAME", (3, r), (3, r), "Helvetica-Bold"), ("FONTNAME", (5, r), (5, r), "Helvetica-Bold"),
-                   ("FONTNAME", (7, r), (7, r), "Helvetica-Bold"),
+                   ("FONTNAME", (2, r), (2, r), "Helvetica-Bold"), ("FONTNAME", (4, r), (4, r), "Helvetica-Bold"),
+                   ("FONTNAME", (6, r), (6, r), "Helvetica-Bold"),
                    ("LINEBELOW", (0, r), (-1, r), 0.3, CREMA2)]
         if alterna % 2 == 1:
             estilo.append(("BACKGROUND", (0, r), (-1, r), CREMA))
         alterna += 1
         r += 1
 
-    tabla = Table(data, colWidths=[48 * mm, 13 * mm, 19 * mm, 19 * mm, 17 * mm, 20 * mm, 17 * mm, 19 * mm],
+    tabla = Table(data, colWidths=[60 * mm, 14 * mm, 22 * mm, 16 * mm, 22 * mm, 16 * mm, 22 * mm],
                   repeatRows=2)
     tabla.setStyle(TableStyle(estilo))
 
     historia = _encabezado("Lista de precios mayorista",
-                           "Productos artesanales para tu cafetería · Precios por unidad, IVA incluido",
+                           "Productos artesanales para tu cafetería · Precios netos por unidad (+ IVA)",
                            ancho_logo=ancho_logo)
     historia += [
         tabla, Spacer(1, 4),
-        Paragraph("<font size='7.5' color='#6B5B50'>Precios finales con IVA incluido. El valor neto se muestra "
-                  "como referencia para la factura (IVA 19%). El descuento aplica al total comprado de un "
-                  "producto cuando el pedido llega a la cantidad de la columna «Desde»; «—»: sin descuento.</font>",
+        Paragraph("<font size='7.5' color='#6B5B50'>Precios netos por unidad. El IVA (19%) se agrega sobre el "
+                  "total de la cotización y la factura. El descuento aplica al total comprado de un producto "
+                  "cuando el pedido llega a la cantidad de la columna «Desde»; «—»: sin descuento.</font>",
                   _ST_NORMAL),
         Spacer(1, 8),
         _caja_condiciones(["<b>Vigencia:</b> precios por unidad, revisables cada 3 meses según el costo de los insumos."]),
