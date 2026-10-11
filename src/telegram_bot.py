@@ -204,7 +204,7 @@ async def _continuar_cotizacion(update: Update, chat_id: int, texto: str) -> Non
 
 # Agregar o quitar productos de la lista mayorista. Las recetas estan por
 # lote; al agregar se enlaza la receta y se pregunta el precio UNITARIO de
-# cada nivel (mayorista.py muestra el costo unitario como referencia).
+# venta (mayorista.py muestra el costo unitario como referencia).
 _chat_gestion_mayorista: dict[int, dict] = {}
 
 _PATRON_AGREGAR_MAYORISTA = re.compile(r"\b(agreg|añad|anad|incorpor)\w*\b.*\bmayor", re.IGNORECASE)

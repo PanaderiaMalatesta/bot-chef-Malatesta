@@ -382,16 +382,18 @@ def herramienta_actualizar_precio_insumo(insumo: str, nuevo_precio: float) -> st
 
 @tool
 def herramienta_listar_precios_mayoristas() -> str:
-    """Lista los precios de venta MAYORISTA a cafeterías (niveles A y B, con IVA
-    incluido). Úsala solo si preguntan por precios mayoristas o al por mayor."""
+    """Lista los precios de venta MAYORISTA a cafeterías (con IVA incluido, y el
+    precio con 10% de descuento desde 24 unidades de un mismo producto). Úsala
+    solo si preguntan por precios mayoristas o al por mayor."""
     return mayorista.listar_precios_texto()
 
 
 @tool
-def herramienta_actualizar_precio_mayorista(producto: str, nivel: str, precio_con_iva: float) -> str:
-    """Cambia el precio mayorista (CON IVA) de un producto en el nivel 'A' o 'B'
-    (ej. "sube el alfajor mayorista B a 2000"). No toca el precio de mostrador."""
-    return mayorista.actualizar_precio(producto, nivel, precio_con_iva)
+def herramienta_actualizar_precio_mayorista(producto: str, precio_con_iva: float) -> str:
+    """Cambia el precio mayorista (CON IVA) de un producto (ej. "sube el alfajor
+    mayorista a 2100"). El 10% por volumen se recalcula solo. No toca el precio
+    de mostrador."""
+    return mayorista.actualizar_precio(producto, precio_con_iva)
 
 
 @tool
