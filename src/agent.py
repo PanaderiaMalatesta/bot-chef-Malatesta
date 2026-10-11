@@ -397,9 +397,10 @@ def herramienta_actualizar_precio_mayorista(producto: str, precio_con_iva: float
 
 
 @tool
-def herramienta_actualizar_minimo_mayorista(producto: str, minimo: int) -> str:
+def herramienta_actualizar_minimo_mayorista(producto: str, minimo: float) -> str:
     """Cambia el pedido mínimo de un producto mayorista, en su unidad de venta
-    (ej. "el brownie mayorista se vende desde 9 unidades")."""
+    (ej. "el brownie mayorista se vende desde 9 unidades"; para productos por
+    kg acepta decimales, ej. 0.5 = medio kilo)."""
     return mayorista.actualizar_minimo(producto, minimo)
 
 

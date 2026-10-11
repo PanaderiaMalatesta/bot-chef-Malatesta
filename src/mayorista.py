@@ -94,14 +94,25 @@ def cargar_precios() -> pd.DataFrame:
     for columna in ("detalle", "receta_producto", "receta_variante"):
         df[columna] = df[columna].fillna("").astype(str)
     df["precio"] = df["precio"].astype(int)
-    df["minimo"] = df["minimo"].fillna(1).astype(int)
+    # los productos por kg aceptan medios kilos (ej. minimo 0,5 kg)
+    df["minimo"] = df["minimo"].fillna(1).astype(float)
     df["unidad"] = df["unidad"].fillna("u").astype(str).replace("", "u")
     return df
 
 
-def _cant(cantidad: int, unidad: str) -> str:
-    """'12' para unidades, '2 kg' para productos por kilo."""
-    return f"{cantidad} {unidad}" if unidad != "u" else str(cantidad)
+def _num(valor: float) -> str:
+    """12 -> '12'; 0.5 -> '0,5'."""
+    return f"{valor:g}".replace(".", ",")
+
+
+def _cant(cantidad: float, unidad: str) -> str:
+    """'12' para unidades, '0,5 kg' para productos por kilo."""
+    return f"{_num(cantidad)} {unidad}" if unidad != "u" else _num(cantidad)
+
+
+def _leer_cantidad(texto: str) -> float:
+    """'12' -> 12; '0,5' o '0.5' -> 0.5."""
+    return float(texto.replace(",", "."))
 
 
 def _buscar_unico(df: pd.DataFrame, producto: str) -> tuple[int | None, str | None]:
@@ -139,18 +150,18 @@ def listar_precios_texto() -> str:
     return "\n".join(lineas)
 
 
-def actualizar_minimo(producto: str, minimo: int) -> str:
+def actualizar_minimo(producto: str, minimo: float) -> str:
     df = cargar_precios()
     i, error = _buscar_unico(df, producto)
     if error:
         return error
-    if minimo < 1:
-        return "El mínimo debe ser 1 o más."
-    anterior = int(df.at[i, "minimo"])
-    df.at[i, "minimo"] = int(minimo)
-    df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
     unidad = df.at[i, "unidad"]
-    return (f"{df.at[i, 'producto']}: mínimo {_cant(anterior, unidad)} → {_cant(int(minimo), unidad)} "
+    if minimo <= 0 or (unidad == "u" and minimo != int(minimo)):
+        return "El mínimo debe ser mayor a cero (y entero si el producto se vende por unidad)."
+    anterior = float(df.at[i, "minimo"])
+    df.at[i, "minimo"] = float(minimo)
+    df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
+    return (f"{df.at[i, 'producto']}: mínimo {_cant(anterior, unidad)} → {_cant(float(minimo), unidad)} "
             "por pedido.")
 
 
@@ -300,7 +311,8 @@ PREGUNTAS = {
 }
 
 _PATRON_OMITIR = re.compile(r"^\s*(omitir|omite|no|ninguna?|nada|sin|-|0)\s*[.!]*\s*$", re.IGNORECASE)
-_PATRON_NUM_X_CANT = re.compile(r"^\s*(\d+)\s*[x×*]\s*(\d+)\s*$", re.IGNORECASE)
+_PATRON_NUM_X_CANT = re.compile(r"^\s*(\d+)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*(?:kg|kilos?)?\s*$", re.IGNORECASE)
+_NUMERO = r"\d+(?:\.\d+)?"
 _PATRON_SI = re.compile(r"^\s*(s[ií]|dale|ok|confirmo|correcto|genera\w*)\b", re.IGNORECASE)
 _PATRON_EDITAR_PRODUCTOS = re.compile(r"producto|cambi|modific|correg", re.IGNORECASE)
 _PALABRAS_VACIAS = {"de", "del", "la", "el", "los", "las", "y", "con", "u", "unidades", "unidad", "un", "una"}
@@ -320,7 +332,7 @@ def siguiente_pregunta(estado: dict) -> str:
                 + listar_precios_texto())
     if paso == "cantidades":
         df = cargar_precios()
-        nombres = "\n".join(f"- {df.iloc[i]['producto']} (mín. {_cant(int(df.iloc[i]['minimo']), df.iloc[i]['unidad'])})"
+        nombres = "\n".join(f"- {df.iloc[i]['producto']} (mín. {_cant(df.iloc[i]['minimo'], df.iloc[i]['unidad'])})"
                             for i in estado["seleccion"])
         return (f"¿Cuántas unidades por despacho de cada uno?\n{nombres}\n\n"
                 "Responde en el mismo orden (ej. \"24, 12, 12\"), o un solo número si es igual para todos.")
@@ -357,23 +369,24 @@ def _buscar_producto(texto: str, df: pd.DataFrame) -> tuple[int | None, str | No
 
 def interpretar_productos(texto: str) -> tuple[list[dict], str | None]:
     df = cargar_precios()
+    texto = _decimales(texto)
     trozos = [t for t in re.split(r"[,;\n]+|\s+y\s+(?=\d)", texto) if t.strip()]
-    cantidades: dict[int, int] = {}
+    cantidades: dict[int, float] = {}
     for trozo in trozos:
         m = _PATRON_NUM_X_CANT.match(trozo)
         if m:
-            indice, cantidad = int(m.group(1)) - 1, int(m.group(2))
+            indice, cantidad = int(m.group(1)) - 1, float(m.group(2))
             if not 0 <= indice < len(df):
                 return [], f"El número {indice + 1} no está en la lista (va de 1 a {len(df)})."
         else:
-            numeros = re.findall(r"\d+", trozo)
+            numeros = re.findall(_NUMERO, trozo)
             if len(numeros) != 1:
                 return [], (f"No entendí \"{trozo.strip()}\". Usa número x cantidad (ej. \"1x24\") "
                             "o cantidad y nombre (ej. \"24 facturas\").")
             if re.fullmatch(r"\s*\d+\s*", trozo):
                 return [], (f"Al producto {numeros[0]} le falta la cantidad (ej. \"{numeros[0]}x12\").")
-            cantidad = int(numeros[0])
-            indice, error = _buscar_producto(re.sub(r"\d+", " ", trozo), df)
+            cantidad = float(numeros[0])
+            indice, error = _buscar_producto(re.sub(_NUMERO, " ", trozo), df)
             if error:
                 return [], error
         if cantidad <= 0:
@@ -385,18 +398,31 @@ def interpretar_productos(texto: str) -> tuple[list[dict], str | None]:
     return _items_validados(cantidades)
 
 
-def _items_validados(cantidades: dict[int, int]) -> tuple[list[dict], str | None]:
-    """Cada producto debe cumplir su minimo de venta (no hay minimo total)."""
+def _decimales(texto: str) -> str:
+    """Normaliza cantidades con decimales para productos por kg: "medio kilo"
+    -> "0.5 kg", "0,5" -> "0.5", "1,5 kg" -> "1.5 kg". Las comas sin un 0
+    adelante siguen separando cantidades ("24,12,12")."""
+    texto = re.sub(r"\bmedio\s+(kilo|kg)\b", "0.5 kg", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\bmedio\b", "0.5", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\b0,(\d)", r"0.\1", texto)
+    return re.sub(r"(\d),(\d+)(?=\s*(kg|kilo))", r"\1.\2", texto, flags=re.IGNORECASE)
+
+
+def _items_validados(cantidades: dict[int, float]) -> tuple[list[dict], str | None]:
+    """Cada producto debe cumplir su minimo de venta (no hay minimo total).
+    Los productos por unidad no aceptan cantidades con decimales."""
     df = cargar_precios()
     faltan = []
     for i, c in sorted(cantidades.items()):
         fila = df.iloc[i]
-        if c < fila["minimo"]:
-            faltan.append(f"- {fila['producto']}: se vende desde {_cant(int(fila['minimo']), fila['unidad'])} "
+        if fila["unidad"] == "u" and c != int(c):
+            faltan.append(f"- {fila['producto']}: se vende por unidad (pediste {_num(c)})")
+        elif c < fila["minimo"]:
+            faltan.append(f"- {fila['producto']}: se vende desde {_cant(fila['minimo'], fila['unidad'])} "
                           f"(pediste {_cant(c, fila['unidad'])})")
     if faltan:
         return [], "No se cumple el mínimo por producto:\n" + "\n".join(faltan) + "\n\nIndica las cantidades de nuevo."
-    return [{"indice": i, "cantidad": c} for i, c in sorted(cantidades.items())], None
+    return [{"indice": i, "cantidad": int(c) if c == int(c) else c} for i, c in sorted(cantidades.items())], None
 
 
 # Palabras que acompañan a una seleccion de la lista sin cantidades
@@ -455,7 +481,7 @@ def calcular(estado: dict) -> dict:
         # El descuento se calcula sobre el neto de la linea, para que la
         # columna "Descuento" cuadre con precio x cantidad - descuento.
         precio = neto(int(fila["precio"]))
-        bruto_linea = precio * it["cantidad"]
+        bruto_linea = round(precio * it["cantidad"])
         descuento_linea = round(bruto_linea * DESCUENTO_VOLUMEN) if con_volumen else 0
         lineas.append({"producto": fila["producto"], "detalle": fila["detalle"], "cantidad": it["cantidad"],
                        "unidad": fila["unidad"],
@@ -503,7 +529,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
         if _PATRON_CAMBIAR_SELECCION.search(texto):
             estado["preguntando"] = "productos"
             return None
-        numeros = [int(n) for n in re.findall(r"\d+", texto.replace(".", ""))]
+        numeros = [float(n) for n in re.findall(_NUMERO, _decimales(texto))]
         seleccion = estado["seleccion"]
         if len(numeros) == 1:
             numeros = numeros * len(seleccion)
