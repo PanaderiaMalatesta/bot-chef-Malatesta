@@ -6,8 +6,15 @@ en Python (no del LLM): el bot pregunta en orden, valida cada respuesta y
 todos los montos se calculan aca, para que el modelo nunca invente precios.
 
 Los precios de data/precios_mayorista.csv son FINALES CON IVA. El neto se
-obtiene dividiendo por 1,19. El nivel se define solo por cantidad total de
-unidades del pedido: 48 o mas -> nivel B, si no nivel A (minimo 12).
+obtiene dividiendo por 1,19.
+
+Precio A y B (regla escalonada, recomendada por el asesor gastronomico en
+oct 2026): todo el pedido se calcula a precio A; si ese total con IVA pasa
+de UMBRAL_MONTO, solo el monto que EXCEDE el umbral se cobra a precio B.
+Asi el cliente nunca paga menos por comprar mas (con "todo el pedido a B
+sobre el umbral", un pedido de $61.000 terminaba pagando menos que uno de
+$59.000). Un producto con precio_b == precio_a va siempre a precio A (ej.
+alfajor y galletas, de margen mas bajo), pero igual suma para el umbral.
 """
 from __future__ import annotations
 
@@ -32,7 +39,7 @@ LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
 
 IVA = 0.19
 MINIMO_UNIDADES = 12
-UMBRAL_NIVEL_B = 48
+UMBRAL_MONTO = 50_000  # con IVA, calculado a precio A
 VALIDEZ_DIAS = 15
 
 TELEFONO = "+56 9 3132 6999"
@@ -41,9 +48,10 @@ PIE = (
     f"Pedidos y consultas: <b>{TELEFONO}</b> (WhatsApp) · oficialmalatesta@gmail.com · malatestachile.cl"
 )
 CONDICIONES = [
-    f"<b>Pedido mínimo:</b> {MINIMO_UNIDADES} unidades por despacho; puedes combinar productos. "
-    "Las unidades de todos los productos se suman para definir el nivel.",
-    f"<b>Nivel B</b> desde {UMBRAL_NIVEL_B} unidades por despacho.",
+    f"<b>Pedido mínimo:</b> {MINIMO_UNIDADES} unidades por despacho; puedes combinar productos.",
+    f"<b>Precio A</b> hasta $50.000 IVA incluido por despacho. <b>El monto que excede los $50.000 se "
+    "cobra a precio B</b> (calculado a precio A; todos los productos suman para llegar al monto).",
+    "<b>Alfajores y galletas</b> se cobran siempre a precio A.",
     "<b>Facturas</b> siempre surtidas (membrillo, pastelera y manjar).",
     "<b>Pedidos</b> con 48 horas de anticipación.",
     "<b>Pago:</b> contra entrega.",
@@ -94,13 +102,15 @@ def fmt(n: float) -> str:
 
 def listar_precios_texto() -> str:
     df = cargar_precios()
-    lineas = ["Precios mayoristas por unidad, IVA incluido (A: 12-47 u · B: 48+ u):"]
+    lineas = [f"Precios mayoristas por unidad, IVA incluido (A hasta {fmt(UMBRAL_MONTO)} por despacho; "
+              "B sobre el excedente):"]
     categoria = None
     for i, fila in enumerate(df.itertuples(), start=1):
         if fila.categoria != categoria:
             categoria = fila.categoria
             lineas.append(f"\n{categoria.upper()}")
-        lineas.append(f"{i}. {fila.producto} — A {fmt(fila.precio_a)} · B {fmt(fila.precio_b)}")
+        precio_b = "siempre A" if fila.precio_b >= fila.precio_a else f"B {fmt(fila.precio_b)}"
+        lineas.append(f"{i}. {fila.producto} — A {fmt(fila.precio_a)} · {precio_b}")
     return "\n".join(lineas)
 
 
@@ -167,8 +177,8 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
     ruta.parent.mkdir(parents=True, exist_ok=True)
 
     data = [
-        ["Producto", f"NIVEL A · {MINIMO_UNIDADES} a {UMBRAL_NIVEL_B - 1} unidades", "",
-         f"NIVEL B · {UMBRAL_NIVEL_B} unidades o más", ""],
+        ["Producto", f"PRECIO A · hasta {fmt(UMBRAL_MONTO)}", "",
+         f"PRECIO B · monto sobre {fmt(UMBRAL_MONTO)}", ""],
         ["", "Neto", "Con IVA", "Neto", "Con IVA"],
     ]
     estilo = [
@@ -178,7 +188,7 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
         ("FONTSIZE", (0, 0), (-1, 0), 9), ("FONTSIZE", (0, 1), (-1, 1), 8),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LINEAFTER", (2, 0), (2, -1), 0.8, TERRA),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3), ("TOPPADDING", (0, 0), (-1, -1), 3),
     ]
     r = 2
     categoria, alterna = None, 0
@@ -193,8 +203,11 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
         nombre = f"<b>{fila.producto}</b>"
         if fila.detalle:
             nombre += f" <font color='#6B5B50' size='7.5'>({fila.detalle})</font>"
-        data.append([Paragraph(nombre, _ST_NORMAL), fmt(neto(fila.precio_a)), fmt(fila.precio_a),
-                     fmt(neto(fila.precio_b)), fmt(fila.precio_b)])
+        if fila.precio_b >= fila.precio_a:
+            columnas_b = ["—", "—"]  # siempre a precio A
+        else:
+            columnas_b = [fmt(neto(fila.precio_b)), fmt(fila.precio_b)]
+        data.append([Paragraph(nombre, _ST_NORMAL), fmt(neto(fila.precio_a)), fmt(fila.precio_a), *columnas_b])
         estilo += [("FONTSIZE", (1, r), (-1, r), 9.5), ("TEXTCOLOR", (1, r), (-1, r), CAFE),
                    ("FONTNAME", (2, r), (2, r), "Helvetica-Bold"), ("FONTNAME", (4, r), (4, r), "Helvetica-Bold"),
                    ("LINEBELOW", (0, r), (-1, r), 0.3, CREMA2)]
@@ -211,7 +224,8 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
     historia += [
         tabla, Spacer(1, 4),
         Paragraph("<font size='7.5' color='#6B5B50'>Precios finales con IVA incluido. El valor neto se muestra "
-                  "como referencia para la factura (IVA 19%).</font>", _ST_NORMAL),
+                  "como referencia para la factura (IVA 19%). «—»: se cobra siempre a precio A.</font>",
+                  _ST_NORMAL),
         Spacer(1, 8),
         _caja_condiciones(["<b>Vigencia:</b> precios por unidad, revisables cada 3 meses según el costo de los insumos."]),
         Spacer(1, 8), _pie(),
@@ -374,21 +388,36 @@ def seleccion_sin_cantidades(texto: str) -> list[int] | None:
 def calcular(estado: dict) -> dict:
     df = cargar_precios()
     unidades = sum(it["cantidad"] for it in estado["items"])
-    nivel = "B" if unidades >= UMBRAL_NIVEL_B else "A"
-    columna = "precio_b" if nivel == "B" else "precio_a"
     lineas = []
+    total_a = elegible_a = elegible_b = 0  # con IVA
     for it in estado["items"]:
         fila = df.iloc[it["indice"]]
+        precio_a, precio_b = int(fila["precio_a"]), int(fila["precio_b"])
+        total_a += precio_a * it["cantidad"]
+        if precio_b < precio_a:
+            elegible_a += precio_a * it["cantidad"]
+            elegible_b += precio_b * it["cantidad"]
         # la lista guarda precios con IVA; la cotizacion va en neto por linea
         # y el IVA se agrega una sola vez sobre el total, como en la factura
-        precio = neto(int(fila[columna]))
+        precio = neto(precio_a)
         lineas.append({"producto": fila["producto"], "detalle": fila["detalle"], "cantidad": it["cantidad"],
                        "precio": precio, "subtotal": precio * it["cantidad"]})
+
+    # Escalonado: el excedente sobre el umbral se cobra a precio B. Se asume
+    # que el excedente sale de los productos con precio B (los "siempre A"
+    # suman al umbral pero no tienen descuento), con su proporcion B/A.
+    excedente = max(0, total_a - UMBRAL_MONTO)
+    excedente_b = min(excedente, elegible_a)
+    descuento_volumen = 0
+    if excedente_b and elegible_a:
+        descuento_volumen = neto(excedente_b * (1 - elegible_b / elegible_a))
+
     bruto = sum(l["subtotal"] for l in lineas)
-    descuento = round(bruto * estado["descuento_pct"] / 100)
-    total_neto = bruto - descuento
+    descuento = round((bruto - descuento_volumen) * estado["descuento_pct"] / 100)
+    total_neto = bruto - descuento_volumen - descuento
     iva = round(total_neto * IVA)
-    return {"nivel": nivel, "unidades": unidades, "lineas": lineas, "bruto": bruto, "descuento": descuento,
+    return {"unidades": unidades, "lineas": lineas, "bruto": bruto, "total_a": total_a,
+            "excedente": excedente, "descuento_volumen": descuento_volumen, "descuento": descuento,
             "neto": total_neto, "iva": iva, "total": total_neto + iva}
 
 
@@ -478,12 +507,19 @@ def formatear_resumen(estado: dict) -> str:
         lineas.append(f"RUT / razón social: {estado['rut']}")
     if estado["contacto"]:
         lineas.append(f"Contacto: {estado['contacto']}")
-    lineas.append(f"\nNivel {c['nivel']} ({c['unidades']} unidades por despacho):")
+    lineas.append(f"\n{c['unidades']} unidades por despacho, a precio A:")
     for l in c["lineas"]:
         lineas.append(f"- {l['cantidad']} × {l['producto']} a {fmt(l['precio'])} neto = {fmt(l['subtotal'])}")
+    if c["descuento_volumen"] or c["descuento"]:
+        lineas.append(f"Subtotal neto {fmt(c['bruto'])}")
+    if c["descuento_volumen"]:
+        lineas.append(f"− Precio B sobre {fmt(c['excedente'])} que exceden {fmt(UMBRAL_MONTO)}: "
+                      f"{fmt(c['descuento_volumen'])}")
+    elif c["total_a"] < UMBRAL_MONTO:
+        lineas.append(f"(Faltan {fmt(UMBRAL_MONTO - c['total_a'])} con IVA para que el excedente "
+                      "se cobre a precio B)")
     if c["descuento"]:
-        lineas.append(f"Subtotal neto {fmt(c['bruto'])} − descuento {estado['descuento_pct']:g}% "
-                      f"({fmt(c['descuento'])})")
+        lineas.append(f"− Descuento {estado['descuento_pct']:g}%: {fmt(c['descuento'])}")
     lineas.append(f"Neto {fmt(c['neto'])} + IVA 19% {fmt(c['iva'])} = Total {fmt(c['total'])}")
     if estado["observaciones"]:
         lineas.append(f"Observaciones: {estado['observaciones']}")
@@ -542,9 +578,12 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
         data.append([Paragraph(nombre, _ST_NORMAL), str(l["cantidad"]), fmt(l["precio"]), fmt(l["subtotal"])])
     n_lineas = len(data)
     totales = []
+    if c["descuento_volumen"] or c["descuento"]:
+        totales.append(["", "", "Subtotal neto", fmt(c["bruto"])])
+    if c["descuento_volumen"]:
+        totales.append(["", "", "Precio B (excedente)", "−" + fmt(c["descuento_volumen"])])
     if c["descuento"]:
-        totales += [["", "", "Subtotal neto", fmt(c["bruto"])],
-                    ["", "", f"Descuento {estado['descuento_pct']:g}%", "−" + fmt(c["descuento"])]]
+        totales.append(["", "", f"Descuento {estado['descuento_pct']:g}%", "−" + fmt(c["descuento"])])
     totales += [["", "", "Neto", fmt(c["neto"])], ["", "", "IVA 19%", fmt(c["iva"])],
                 ["", "", "TOTAL", fmt(c["total"])]]
     data += totales
@@ -566,8 +605,12 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     tabla = Table(data, colWidths=[82 * mm, 22 * mm, 34 * mm, 34 * mm])
     tabla.setStyle(TableStyle(estilo))
 
-    nota = (f"Nivel {c['nivel']} aplicado: {c['unidades']} unidades por despacho "
-            f"(nivel A: {MINIMO_UNIDADES} a {UMBRAL_NIVEL_B - 1} u; nivel B: {UMBRAL_NIVEL_B} u o más).")
+    if c["descuento_volumen"]:
+        nota = (f"Pedido de {fmt(c['total_a'])} con IVA a precio A: los {fmt(c['excedente'])} que exceden "
+                f"{fmt(UMBRAL_MONTO)} se cobran a precio B (alfajores y galletas, siempre a precio A).")
+    else:
+        nota = (f"Precio A hasta {fmt(UMBRAL_MONTO)} con IVA por despacho; el monto que excede ese valor "
+                "se cobra a precio B.")
     historia = _encabezado(f"Cotización N° {numero:04d}", "Precios mayoristas")
     historia += [tabla_datos, Spacer(1, 10), tabla, Spacer(1, 4),
                  Paragraph(f"<font size='7.5' color='#6B5B50'>{nota}</font>", _ST_NORMAL)]
@@ -690,8 +733,8 @@ def _referencia_precios(estado: dict) -> str:
     else:
         lineas.append("Ojo: no pude calcular el costo unitario de esta receta.")
     if mostrador:
-        lineas.append(f"Precio de mostrador: {fmt(mostrador)}. Referencia nivel A (−20%): "
-                      f"{fmt(_redondear(mostrador * 0.8))} · nivel B (−28%): {fmt(_redondear(mostrador * 0.72))}.")
+        lineas.append(f"Precio de mostrador: {fmt(mostrador)}. Referencia precio A (−20%): "
+                      f"{fmt(_redondear(mostrador * 0.8))} · precio B (−28%): {fmt(_redondear(mostrador * 0.72))}.")
     return "\n".join(lineas)
 
 
@@ -711,10 +754,11 @@ def siguiente_pregunta_gestion(estado: dict) -> str:
         opciones = "\n".join(f"{i}. {c}" for i, c in enumerate(categorias, start=1))
         return f"¿En qué categoría de la lista va?\n{opciones}\n\nResponde el número o escribe una categoría nueva."
     if paso == "agregar_precio_a":
-        return (_referencia_precios(estado) + "\n\n¿A cuánto se vende la unidad en NIVEL A "
-                f"({MINIMO_UNIDADES} a {UMBRAL_NIVEL_B - 1} u), con IVA incluido?")
+        return (_referencia_precios(estado) + "\n\n¿A cuánto se vende la unidad a PRECIO A "
+                f"(pedidos hasta {fmt(UMBRAL_MONTO)}), con IVA incluido?")
     if paso == "agregar_precio_b":
-        return f"¿Y la unidad en NIVEL B ({UMBRAL_NIVEL_B} u o más), con IVA incluido?"
+        return (f"¿Y la unidad a PRECIO B (monto que excede {fmt(UMBRAL_MONTO)}), con IVA incluido? "
+                "Responde \"no\" si este producto va siempre a precio A.")
     if paso == "agregar_confirmacion":
         return formatear_resumen_agregar(estado)
     if paso == "quitar_elegir":
@@ -742,10 +786,11 @@ def formatear_resumen_agregar(estado: dict) -> str:
     detalle = f" ({estado['detalle']})" if estado["detalle"] else ""
     return (f"Producto mayorista nuevo:\n"
             f"{estado['nombre']}{detalle} — categoría {estado['categoria']}\n"
-            f"Nivel A: {fmt(estado['precio_a'])} con IVA (neto {fmt(neto(estado['precio_a']))})"
+            f"Precio A: {fmt(estado['precio_a'])} con IVA (neto {fmt(neto(estado['precio_a']))})"
             f"{_ganancia(estado['precio_a'], costo)}\n"
-            f"Nivel B: {fmt(estado['precio_b'])} con IVA (neto {fmt(neto(estado['precio_b']))})"
-            f"{_ganancia(estado['precio_b'], costo)}\n\n"
+            + ("Precio B: no aplica, siempre a precio A\n\n" if estado["precio_b"] >= estado["precio_a"] else
+               f"Precio B: {fmt(estado['precio_b'])} con IVA (neto {fmt(neto(estado['precio_b']))})"
+               f"{_ganancia(estado['precio_b'], costo)}\n\n") +
             "¿Lo agrego? (sí / cancelar)")
 
 
@@ -855,6 +900,11 @@ def aplicar_respuesta_gestion(estado: dict, texto: str) -> str | None:
         estado["preguntando"] = "agregar_precio_a"
         return None
 
+    if paso == "agregar_precio_b" and re.match(r"^\s*(no|siempre\s+a|igual|no\s+aplica)\b", texto, re.IGNORECASE):
+        estado["precio_b"] = estado["precio_a"]  # precio_b == precio_a: siempre a precio A
+        estado["preguntando"] = "agregar_confirmacion"
+        return None
+
     if paso in ("agregar_precio_a", "agregar_precio_b"):
         precio = _leer_precio(texto)
         if not precio or precio < 100:
@@ -864,8 +914,8 @@ def aplicar_respuesta_gestion(estado: dict, texto: str) -> str | None:
             estado["preguntando"] = "agregar_precio_b"
         else:
             if precio > estado["precio_a"]:
-                return (f"El nivel B es por volumen, no debería ser más caro que el A ({fmt(estado['precio_a'])}). "
-                        "Indica el precio B de nuevo.")
+                return (f"El precio B es por volumen, no debería ser más caro que el A ({fmt(estado['precio_a'])}). "
+                        "Indica el precio B de nuevo, o \"no\" si va siempre a precio A.")
             estado["precio_b"] = precio
             estado["preguntando"] = "agregar_confirmacion"
         return None

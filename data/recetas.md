@@ -423,8 +423,9 @@ cortar, para mejores cortes y textura.
 
 ## Croissants (categoría nueva, recetario interno en ampliación)
 
-### Croissant Plano — receta base de laminado (lote rinde 24 croissants)
-Receta de Raúl (oct 2026), base de 12 croissants multiplicada por 2.
+### Croissant Plano — receta base de laminado (lote rinde 13 croissants de ~80 g)
+Receta de Raúl (oct 2026), base multiplicada por 2. El lote da ~1.072 g de
+masa: a ~80 g por croissant (peso estándar) rinde 13 unidades de ~82 g.
 Ingredientes de la masa: harina de panadería de alto contenido proteico
 (harina fortaleza plus) 500 g, azúcar 60 g, sal 2 g, levadura fresca 10 g,
 leche tibia 300 mL preparada con leche en polvo: 36 g de leche en polvo +
@@ -433,7 +434,7 @@ agua).
 Mantequilla para el laminado: mantequilla sin sal 200 g.
 Para barnizar: 2 huevos + 2 cucharadas (30 mL) de agua a temperatura ambiente.
 
-Procedimiento (para el lote de 24):
+Procedimiento (para el lote de 13):
 **Leche:** disolver los 36 g de leche en polvo en los 264 mL de agua tibia.
 **Masa:** colocar la harina en un recipiente y hacer un hueco en el centro →
 verter parte de la leche tibia y disolver ahí la levadura fresca → agregar el
@@ -446,8 +447,8 @@ mantequilla (firme pero flexible) → doblar la masa envolviendo la
 mantequilla, como en un hojaldre.
 **Vueltas:** dar dos vueltas → reposar 15 minutos → dar una tercera vuelta →
 reposar de nuevo antes de formar.
-**Formado:** estirar la masa a 2-3 mm de grosor → cortar 24 triángulos de
-7-8 cm (12 por cada mitad de la receta) → enrollar cada triángulo desde la
+**Formado:** estirar la masa a 2-3 mm de grosor → cortar 13 triángulos de
+~80 g cada uno → enrollar cada triángulo desde la
 base y curvar los extremos para formar una media luna.
 **Fermentación y horneado:** colocar en bandeja con la punta hacia arriba →
 cubrir con un paño y dejar leudar 1,5 a 2 horas en un lugar templado →
