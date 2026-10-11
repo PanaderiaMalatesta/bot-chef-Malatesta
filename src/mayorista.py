@@ -8,11 +8,14 @@ todos los montos se calculan aca, para que el modelo nunca invente precios.
 Los precios de data/precios_mayorista.csv son FINALES CON IVA. El neto se
 obtiene dividiendo por 1,19.
 
-Descuento por volumen (regla de Raul, oct 2026): cada producto tiene un solo
-precio; si un pedido trae UNIDADES_DESCUENTO o mas unidades DE UN MISMO
-producto, todas las unidades de ese producto llevan DESCUENTO_VOLUMEN (10%).
-Aplica a todos los productos. Reemplazo a los niveles A/B (primero por
-cantidad total, despues por monto sobre $50.000).
+Descuento por volumen (regla de Raul, oct 2026, cantidades del asesor): cada
+producto tiene un solo precio y su propia cantidad "descuento_desde" (ej.
+facturas 24, muffins 12 por sabor). Dos escalones sobre el total comprado DE
+ESE producto: DESCUENTO_NIVEL_1 (5%) desde "descuento_desde" y
+DESCUENTO_NIVEL_2 (10%) desde FACTOR_NIVEL_2 (3) veces esa cantidad. Sin
+"descuento_desde" = sin descuento (ej. brownie, muffins de menor margen).
+Reemplazo a los niveles A/B (por cantidad total, despues por monto) y al
+10% unico desde 24 u.
 """
 from __future__ import annotations
 
@@ -36,8 +39,10 @@ COTIZACIONES_DIR = DATA_DIR / "cotizaciones"
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
 
 IVA = 0.19
-UNIDADES_DESCUENTO = 24  # de un mismo producto
-DESCUENTO_VOLUMEN = 0.10
+DESCUENTO_DESDE_ANTIGUO = 24  # umbral unico previo, para CSV sin la columna
+DESCUENTO_NIVEL_1 = 0.05
+DESCUENTO_NIVEL_2 = 0.10
+FACTOR_NIVEL_2 = 3  # el 10% parte del triple de la cantidad del 5%
 VALIDEZ_DIAS = 15
 
 TELEFONO = "+56 9 3132 6999"
@@ -47,8 +52,9 @@ PIE = (
 )
 CONDICIONES = [
     "<b>Pedido mínimo por producto</b> según la lista de precios; puedes combinar productos libremente.",
-    f"<b>Descuento por volumen:</b> desde {UNIDADES_DESCUENTO} unidades de un mismo producto, "
-    f"<b>{DESCUENTO_VOLUMEN:.0%} de descuento</b> en todas las unidades de ese producto.",
+    f"<b>Descuento por volumen:</b> {DESCUENTO_NIVEL_1:.0%} al llegar a la cantidad indicada para cada "
+    f"producto y {DESCUENTO_NIVEL_2:.0%} desde el triple de esa cantidad, <b>sobre el total comprado de ese "
+    "producto</b>.",
     "<b>Facturas</b> siempre surtidas (membrillo, pastelera y manjar).",
     "<b>Pedidos</b> con 48 horas de anticipación.",
     "<b>Pago:</b> contra entrega.",
@@ -91,13 +97,31 @@ def cargar_precios() -> pd.DataFrame:
         df["minimo"] = 1
     if "unidad" not in df.columns:
         df["unidad"] = "u"
+    # cantidad de ESE producto desde la que parte el 5% (vacio/0 = sin descuento)
+    if "descuento_desde" not in df.columns:
+        df["descuento_desde"] = DESCUENTO_DESDE_ANTIGUO
+    df = df.drop(columns=["descuento_pct"], errors="ignore")  # columna de una version previa
     for columna in ("detalle", "receta_producto", "receta_variante"):
         df[columna] = df[columna].fillna("").astype(str)
     df["precio"] = df["precio"].astype(int)
     # los productos por kg aceptan medios kilos (ej. minimo 0,5 kg)
     df["minimo"] = df["minimo"].fillna(1).astype(float)
     df["unidad"] = df["unidad"].fillna("u").astype(str).replace("", "u")
+    df["descuento_desde"] = pd.to_numeric(df["descuento_desde"], errors="coerce").fillna(0).astype(float)
     return df
+
+
+def pct_descuento(cantidad: float, desde: float) -> float:
+    """Descuento que corresponde a `cantidad` de un producto cuyo primer
+    escalon parte en `desde`: 0, 5% o 10% (desde el triple)."""
+    if desde <= 0 or cantidad < desde:
+        return 0.0
+    return DESCUENTO_NIVEL_2 if cantidad >= desde * FACTOR_NIVEL_2 else DESCUENTO_NIVEL_1
+
+
+def _texto_descuento(desde: float, unidad: str) -> str:
+    """'desde 36' / 'desde 3 kg' / 'sin descuento'."""
+    return f"desde {_cant(desde, unidad)}" if desde > 0 else "sin descuento"
 
 
 def _num(valor: float) -> str:
@@ -127,8 +151,8 @@ def neto(precio_con_iva: float) -> int:
     return round(precio_con_iva / (1 + IVA))
 
 
-def con_descuento(precio_con_iva: int) -> int:
-    return round(precio_con_iva * (1 - DESCUENTO_VOLUMEN))
+def con_descuento(precio_con_iva: int, pct: float) -> int:
+    return round(precio_con_iva * (1 - pct))
 
 
 def fmt(n: float) -> str:
@@ -137,17 +161,47 @@ def fmt(n: float) -> str:
 
 def listar_precios_texto() -> str:
     df = cargar_precios()
-    lineas = [f"Precios mayoristas por unidad, IVA incluido ({UNIDADES_DESCUENTO}+ u de un mismo "
-              f"producto: −{DESCUENTO_VOLUMEN:.0%}):"]
+    lineas = ["Precios mayoristas por unidad, IVA incluido (descuento por volumen desde la cantidad "
+              "indicada de cada producto):"]
     categoria = None
     for i, fila in enumerate(df.itertuples(), start=1):
         if fila.categoria != categoria:
             categoria = fila.categoria
             lineas.append(f"\n{categoria.upper()}")
-        por = "/kg" if fila.unidad == "kg" else ""
-        lineas.append(f"{i}. {fila.producto} — {fmt(fila.precio)}{por} · {UNIDADES_DESCUENTO}+ {fila.unidad}: "
-                      f"{fmt(con_descuento(fila.precio))}{por} · mín. {_cant(fila.minimo, fila.unidad)}")
+        lineas.append(f"{i}. {fila.producto} — {_escalones(fila.precio, fila.descuento_desde, fila.unidad)} · "
+                      f"mín. {_cant(fila.minimo, fila.unidad)}")
     return "\n".join(lineas)
+
+
+def _escalones(precio: int, desde: float, unidad: str, con_precio: bool = True) -> str:
+    """'$1.000 · −5% desde 24: $950 · −10% desde 72: $900' (o 'sin descuento')."""
+    por = "/kg" if unidad == "kg" else ""
+    partes = [f"{fmt(precio)}{por}"] if con_precio else []
+    if desde > 0:
+        partes += [f"−{DESCUENTO_NIVEL_1:.0%} desde {_cant(desde, unidad)}: "
+                   f"{fmt(con_descuento(precio, DESCUENTO_NIVEL_1))}{por}",
+                   f"−{DESCUENTO_NIVEL_2:.0%} desde {_cant(desde * FACTOR_NIVEL_2, unidad)}: "
+                   f"{fmt(con_descuento(precio, DESCUENTO_NIVEL_2))}{por}"]
+    else:
+        partes.append("sin descuento")
+    return " · ".join(partes)
+
+
+def actualizar_descuento(producto: str, desde: float) -> str:
+    """Cantidad de ese producto desde la que parte el 5% (el 10% parte del
+    triple); 0 = sin descuento."""
+    df = cargar_precios()
+    i, error = _buscar_unico(df, producto)
+    if error:
+        return error
+    unidad = df.at[i, "unidad"]
+    if desde < 0 or (unidad == "u" and desde != int(desde)):
+        return "La cantidad debe ser 0 (sin descuento) o mayor, y entera si el producto se vende por unidad."
+    precio = int(df.at[i, "precio"])
+    antes = _escalones(precio, float(df.at[i, "descuento_desde"]), unidad, con_precio=False)
+    df.at[i, "descuento_desde"] = float(desde)
+    df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
+    return f"{df.at[i, 'producto']}: {antes} → {_escalones(precio, float(desde), unidad, con_precio=False)}."
 
 
 def actualizar_minimo(producto: str, minimo: float) -> str:
@@ -173,9 +227,10 @@ def actualizar_precio(producto: str, precio_con_iva: float) -> str:
     anterior = int(df.at[i, "precio"])
     df.at[i, "precio"] = int(round(precio_con_iva))
     df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
+    dcto = _escalones(int(round(precio_con_iva)), float(df.at[i, "descuento_desde"]), df.at[i, "unidad"],
+                      con_precio=False)
     return (f"{df.at[i, 'producto']}: {fmt(anterior)} → {fmt(precio_con_iva)} con IVA "
-            f"(neto {fmt(neto(precio_con_iva))}; con {UNIDADES_DESCUENTO}+ u: "
-            f"{fmt(con_descuento(precio_con_iva))}).")
+            f"(neto {fmt(neto(precio_con_iva))}; {dcto}).")
 
 
 # --- PDF ----------------------------------------------------------------------
@@ -238,16 +293,18 @@ def generar_pdf_lista(ruta: Path | None = None) -> Path:
 def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list:
     data = [
         ["Producto", "Mín.", "PRECIO UNITARIO", "",
-         f"{UNIDADES_DESCUENTO}+ UNIDADES · −{DESCUENTO_VOLUMEN:.0%}", ""],
-        ["", "", "Neto", "Con IVA", "Neto", "Con IVA"],
+         f"−{DESCUENTO_NIVEL_1:.0%} POR VOLUMEN", "", f"−{DESCUENTO_NIVEL_2:.0%} POR VOLUMEN", ""],
+        ["", "", "Neto", "Con IVA", "Desde", "Con IVA", "Desde", "Con IVA"],
     ]
     estilo = [
         ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (3, 0)), ("SPAN", (4, 0), (5, 0)),
+        ("SPAN", (6, 0), (7, 0)),
         ("BACKGROUND", (0, 0), (-1, 1), CAFE), ("TEXTCOLOR", (0, 0), (-1, 1), colors.white),
         ("FONTNAME", (0, 0), (-1, 1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 9), ("FONTSIZE", (0, 1), (-1, 1), 8),
+        ("FONTSIZE", (0, 0), (-1, 0), 8.5), ("FONTSIZE", (0, 1), (-1, 1), 8),
         ("ALIGN", (1, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("LINEAFTER", (1, 0), (1, -1), 0.4, CREMA2), ("LINEAFTER", (3, 0), (3, -1), 0.8, TERRA),
+        ("LINEAFTER", (5, 0), (5, -1), 0.8, TERRA),
         ("BOTTOMPADDING", (0, 0), (-1, -1), padding), ("TOPPADDING", (0, 0), (-1, -1), padding),
     ]
     r = 2
@@ -255,7 +312,7 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
     for fila in df.itertuples():
         if fila.categoria != categoria:
             categoria, alterna = fila.categoria, 0
-            data.append([categoria.upper(), "", "", "", "", ""])
+            data.append([categoria.upper(), "", "", "", "", "", "", ""])
             estilo += [("SPAN", (0, r), (-1, r)), ("BACKGROUND", (0, r), (-1, r), CREMA2),
                        ("TEXTCOLOR", (0, r), (-1, r), TERRA), ("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"),
                        ("FONTSIZE", (0, r), (-1, r), 8.5), ("ALIGN", (0, r), (-1, r), "LEFT")]
@@ -263,19 +320,26 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
         nombre = f"<b>{fila.producto}</b>"
         if fila.detalle:
             nombre += f" <font color='#6B5B50' size='7.5'>({fila.detalle})</font>"
-        rebajado = con_descuento(fila.precio)
-        neto_rebajado = round(neto(fila.precio) * (1 - DESCUENTO_VOLUMEN))  # igual que en la cotizacion
+        if fila.descuento_desde > 0:
+            columnas_dcto = [_cant(fila.descuento_desde, fila.unidad),
+                             fmt(con_descuento(fila.precio, DESCUENTO_NIVEL_1)),
+                             _cant(fila.descuento_desde * FACTOR_NIVEL_2, fila.unidad),
+                             fmt(con_descuento(fila.precio, DESCUENTO_NIVEL_2))]
+        else:
+            columnas_dcto = ["—", "—", "—", "—"]
         data.append([Paragraph(nombre, _ST_NORMAL), _cant(fila.minimo, fila.unidad), fmt(neto(fila.precio)),
-                     fmt(fila.precio), fmt(neto_rebajado), fmt(rebajado)])
+                     fmt(fila.precio), *columnas_dcto])
         estilo += [("FONTSIZE", (1, r), (-1, r), 9.5), ("TEXTCOLOR", (1, r), (-1, r), CAFE),
                    ("FONTNAME", (3, r), (3, r), "Helvetica-Bold"), ("FONTNAME", (5, r), (5, r), "Helvetica-Bold"),
+                   ("FONTNAME", (7, r), (7, r), "Helvetica-Bold"),
                    ("LINEBELOW", (0, r), (-1, r), 0.3, CREMA2)]
         if alterna % 2 == 1:
             estilo.append(("BACKGROUND", (0, r), (-1, r), CREMA))
         alterna += 1
         r += 1
 
-    tabla = Table(data, colWidths=[58 * mm, 16 * mm, 24.5 * mm, 24.5 * mm, 24.5 * mm, 24.5 * mm], repeatRows=2)
+    tabla = Table(data, colWidths=[48 * mm, 13 * mm, 19 * mm, 19 * mm, 17 * mm, 20 * mm, 17 * mm, 19 * mm],
+                  repeatRows=2)
     tabla.setStyle(TableStyle(estilo))
 
     historia = _encabezado("Lista de precios mayorista",
@@ -284,9 +348,8 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
     historia += [
         tabla, Spacer(1, 4),
         Paragraph("<font size='7.5' color='#6B5B50'>Precios finales con IVA incluido. El valor neto se muestra "
-                  f"como referencia para la factura (IVA 19%). El descuento de {DESCUENTO_VOLUMEN:.0%} aplica a "
-                  f"todas las unidades de un producto cuando el pedido trae {UNIDADES_DESCUENTO} o más de ese "
-                  "producto.</font>",
+                  "como referencia para la factura (IVA 19%). El descuento aplica al total comprado de un "
+                  "producto cuando el pedido llega a la cantidad de la columna «Desde»; «—»: sin descuento.</font>",
                   _ST_NORMAL),
         Spacer(1, 8),
         _caja_condiciones(["<b>Vigencia:</b> precios por unidad, revisables cada 3 meses según el costo de los insumos."]),
@@ -474,16 +537,20 @@ def calcular(estado: dict) -> dict:
     lineas = []
     for it in estado["items"]:
         fila = df.iloc[it["indice"]]
-        # descuento por volumen: 24+ u de este producto -> 10% en todas sus unidades
-        con_volumen = it["cantidad"] >= UNIDADES_DESCUENTO
+        # descuento por volumen: al llegar a "descuento_desde" de ESTE producto,
+        # 10% sobre el total comprado de ese producto
+        desde = float(fila["descuento_desde"])
+        con_volumen = desde > 0 and it["cantidad"] >= desde
         # la lista guarda precios con IVA; la cotizacion va en neto por linea
         # y el IVA se agrega una sola vez sobre el total, como en la factura.
         # El descuento se calcula sobre el neto de la linea, para que la
         # columna "Descuento" cuadre con precio x cantidad - descuento.
         precio = neto(int(fila["precio"]))
         bruto_linea = round(precio * it["cantidad"])
-        descuento_linea = round(bruto_linea * DESCUENTO_VOLUMEN) if con_volumen else 0
+        pct = pct_descuento(it["cantidad"], desde)
+        descuento_linea = round(bruto_linea * pct)
         lineas.append({"producto": fila["producto"], "detalle": fila["detalle"], "cantidad": it["cantidad"],
+                       "descuento_desde": desde, "pct": pct,
                        "unidad": fila["unidad"],
                        "precio": precio, "descuento_linea": descuento_linea,
                        "subtotal": bruto_linea - descuento_linea, "con_volumen": con_volumen})
@@ -584,13 +651,20 @@ def formatear_resumen(estado: dict) -> str:
         lineas.append(f"Contacto: {estado['contacto']}")
     lineas.append("\nDetalle por despacho:")
     for l in c["lineas"]:
-        marca = (f" − {DESCUENTO_VOLUMEN:.0%} ({fmt(l['descuento_linea'])})" if l["con_volumen"] else "")
+        marca = (f" − {l['pct']:.0%} ({fmt(l['descuento_linea'])})" if l["con_volumen"] else "")
         lineas.append(f"- {_cant(l['cantidad'], l['unidad'])} × {l['producto']} a {fmt(l['precio'])} neto{marca} "
                       f"= {fmt(l['subtotal'])}")
-    cerca = [l for l in c["lineas"] if UNIDADES_DESCUENTO - 6 <= l["cantidad"] < UNIDADES_DESCUENTO]
-    for l in cerca:
-        lineas.append(f"(Con {UNIDADES_DESCUENTO - l['cantidad']} más de {l['producto']} llega a "
-                      f"{UNIDADES_DESCUENTO} u y lleva {DESCUENTO_VOLUMEN:.0%} de descuento)")
+    # aviso cuando a un producto le falta poco (25% o menos) para el
+    # siguiente escalon de descuento (5% o 10%)
+    for l in c["lineas"]:
+        desde = l["descuento_desde"]
+        if desde <= 0:
+            continue
+        meta, pct_meta = ((desde, DESCUENTO_NIVEL_1) if l["cantidad"] < desde else
+                          (desde * FACTOR_NIVEL_2, DESCUENTO_NIVEL_2))
+        if meta * 0.75 <= l["cantidad"] < meta:
+            lineas.append(f"(Con {_cant(meta - l['cantidad'], l['unidad'])} más de {l['producto']} llega a "
+                          f"{_cant(meta, l['unidad'])} y lleva {pct_meta:.0%} de descuento)")
     if c["descuento"]:
         lineas.append(f"Subtotal neto {fmt(c['bruto'])}")
         lineas.append(f"− Descuento {estado['descuento_pct']:g}%: {fmt(c['descuento'])}")
@@ -644,7 +718,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     ]))
 
     # Detalle
-    data = [["Producto", "Cantidad", "Precio unitario\nneto", f"Descuento\n({UNIDADES_DESCUENTO}+ u)",
+    data = [["Producto", "Cantidad", "Precio unitario\nneto", "Descuento\npor volumen",
              "Subtotal\nneto"]]
     _st_dcto = ParagraphStyle("d", parent=_ST_NORMAL, alignment=TA_CENTER, textColor=TERRA, fontSize=9, leading=10.5)
     for l in c["lineas"]:
@@ -652,7 +726,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
         if l["detalle"]:
             nombre += f" <font color='#6B5B50' size='7.5'>({l['detalle']})</font>"
         if l["con_volumen"]:
-            dcto = Paragraph(f"{DESCUENTO_VOLUMEN:.0%}<br/>−{fmt(l['descuento_linea'])}", _st_dcto)
+            dcto = Paragraph(f"{l['pct']:.0%}<br/>−{fmt(l['descuento_linea'])}", _st_dcto)
         else:
             dcto = "—"
         data.append([Paragraph(nombre, _ST_NORMAL), _cant(l["cantidad"], l["unidad"]), fmt(l["precio"]), dcto,
@@ -683,9 +757,9 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     tabla = Table(data, colWidths=[66 * mm, 18 * mm, 28 * mm, 28 * mm, 32 * mm])
     tabla.setStyle(TableStyle(estilo))
 
-    nota = (f"Descuento por volumen: desde {UNIDADES_DESCUENTO} unidades de un mismo producto, "
-            f"{DESCUENTO_VOLUMEN:.0%} de descuento en todas las unidades de ese producto "
-            "(ver columna Descuento).")
+    nota = ("Descuento por volumen: al llegar a la cantidad indicada en la lista de precios para cada "
+            "producto, se aplica su % de descuento sobre el total comprado de ese producto (ver columna "
+            "Descuento).")
     historia = _encabezado(f"Cotización N° {numero:04d}", "Precios mayoristas")
     historia += [tabla_datos, Spacer(1, 10), tabla, Spacer(1, 4),
                  Paragraph(f"<font size='7.5' color='#6B5B50'>{nota}</font>", _ST_NORMAL)]
@@ -830,9 +904,12 @@ def siguiente_pregunta_gestion(estado: dict) -> str:
         return f"¿En qué categoría de la lista va?\n{opciones}\n\nResponde el número o escribe una categoría nueva."
     if paso == "agregar_precio":
         return (_referencia_precios(estado) + "\n\n¿A cuánto se vende la unidad al por mayor, con IVA "
-                f"incluido? (desde {UNIDADES_DESCUENTO} u se descuenta {DESCUENTO_VOLUMEN:.0%} automáticamente)")
+                "incluido?")
     if paso == "agregar_minimo":
         return "¿Cuál es el pedido mínimo de este producto, en unidades? (ej. \"6\")"
+    if paso == "agregar_descuento":
+        return (f"¿Desde cuántas unidades de este producto parte el descuento de {DESCUENTO_NIVEL_1:.0%}? "
+                f"(el {DESCUENTO_NIVEL_2:.0%} parte del triple; ej. \"12\") o \"sin descuento\"")
     if paso == "agregar_confirmacion":
         return formatear_resumen_agregar(estado)
     if paso == "quitar_elegir":
@@ -862,10 +939,14 @@ def formatear_resumen_agregar(estado: dict) -> str:
             f"{estado['nombre']}{detalle} — categoría {estado['categoria']}\n"
             f"Precio: {fmt(estado['precio'])} con IVA (neto {fmt(neto(estado['precio']))})"
             f"{_ganancia(estado['precio'], costo)}\n"
-            f"Con {UNIDADES_DESCUENTO}+ u: {fmt(con_descuento(estado['precio']))} con IVA "
-            f"(neto {fmt(neto(con_descuento(estado['precio'])))})"
-            f"{_ganancia(con_descuento(estado['precio']), costo)}\n"
-            f"Mínimo por pedido: {estado['minimo']} u\n\n"
+            + "".join(
+                f"Con −{pct:.0%} desde {cantidad:g} u: {fmt(con_descuento(estado['precio'], pct))} con IVA"
+                f"{_ganancia(con_descuento(estado['precio'], pct), costo)}\n"
+                for pct, cantidad in [(DESCUENTO_NIVEL_1, estado["descuento_desde"]),
+                                      (DESCUENTO_NIVEL_2, estado["descuento_desde"] * FACTOR_NIVEL_2)]
+                if estado.get("descuento_desde"))
+            + ("" if estado.get("descuento_desde") else "Sin descuento por volumen\n")
+            + f"Mínimo por pedido: {estado['minimo']} u\n\n"
             "¿Lo agrego? (sí / cancelar)")
 
 
@@ -988,6 +1069,17 @@ def aplicar_respuesta_gestion(estado: dict, texto: str) -> str | None:
         if not m or int(m.group(0)) < 1:
             return "Indica el mínimo como un número de unidades (ej. \"6\")."
         estado["minimo"] = int(m.group(0))
+        estado["preguntando"] = "agregar_descuento"
+        return None
+
+    if paso == "agregar_descuento":
+        if re.search(r"\bsin\b|^\s*no\s*$", texto, re.IGNORECASE):
+            estado["descuento_desde"] = 0
+        else:
+            desde = re.search(r"\d+", texto)
+            if not desde:
+                return "Indica desde cuántas unidades parte el 5% (ej. \"24\") o \"sin descuento\"."
+            estado["descuento_desde"] = int(desde.group(0))
         estado["preguntando"] = "agregar_confirmacion"
         return None
 
@@ -1012,12 +1104,12 @@ def guardar_gestion(estado: dict) -> str:
 
     nueva = {"categoria": estado["categoria"], "producto": estado["nombre"], "detalle": estado["detalle"],
              "receta_producto": estado["receta_producto"], "receta_variante": "|".join(estado["variantes"]),
-             "precio": estado["precio"], "minimo": estado.get("minimo", 1), "unidad": "u"}
+             "precio": estado["precio"], "minimo": estado.get("minimo", 1), "unidad": "u",
+             "descuento_desde": estado.get("descuento_desde", 0)}
     # queda junto a los de su categoria (o al final si la categoria es nueva)
     misma = [i for i, c in enumerate(df["categoria"]) if c == estado["categoria"]]
     posicion = misma[-1] + 1 if misma else len(df)
     df = pd.concat([df.iloc[:posicion], pd.DataFrame([nueva]), df.iloc[posicion:]], ignore_index=True)
     df.to_csv(PRECIOS_MAYORISTA_PATH, index=False)
     return (f"Listo, agregué \"{estado['nombre']}\" a la venta mayorista "
-            f"({fmt(estado['precio'])} con IVA; con {UNIDADES_DESCUENTO}+ u: "
-            f"{fmt(con_descuento(estado['precio']))}).")
+            f"({fmt(estado['precio'])} con IVA).")
