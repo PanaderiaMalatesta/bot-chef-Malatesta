@@ -371,11 +371,15 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
 # El estado es un dict por chat (lo guarda telegram_bot.py). "preguntando" es
 # la clave del paso actual; los pasos opcionales aceptan "omitir".
 
-PASOS = ["cliente", "rut", "contacto", "productos", "descuento", "observaciones", "confirmacion"]
+# La cotizacion parte por el RUT: si el cliente ya esta guardado
+# (clientes_mayoristas.csv) se ofrecen sus datos ("confirmar_cliente") y se
+# salta a productos; si es nuevo se piden y se guardan al generar el PDF.
+PASOS = ["rut", "cliente", "razon_social", "contacto", "productos", "descuento", "observaciones", "confirmacion"]
 
 PREGUNTAS = {
-    "cliente": "¿A qué cafetería o empresa va dirigida la cotización?",
-    "rut": "¿RUT y razón social? (responde \"omitir\" si no aplica)",
+    "rut": "¿RUT del cliente? (ej. 76.123.456-7; responde \"omitir\" si no tiene)",
+    "cliente": "¿Nombre de la cafetería o empresa?",
+    "razon_social": "¿Razón social? (o \"omitir\")",
     "contacto": "¿Nombre y teléfono o correo del contacto? (o \"omitir\")",
     "descuento": "¿Algún descuento adicional para este cliente? Indica el porcentaje (ej. \"5%\") o \"no\".",
     "observaciones": "¿Alguna observación para la cotización? (o \"no\")",
@@ -390,12 +394,76 @@ _PALABRAS_VACIAS = {"de", "del", "la", "el", "los", "las", "y", "con", "u", "uni
 
 
 def iniciar() -> dict:
-    return {"preguntando": "cliente", "cliente": "", "rut": "", "contacto": "",
-            "items": [], "descuento_pct": 0.0, "observaciones": ""}
+    return {"preguntando": "rut", "cliente": "", "rut": "", "razon_social": "", "contacto": "",
+            "actualizando": False, "items": [], "descuento_pct": 0.0, "observaciones": ""}
+
+
+# --- Clientes (memoria por RUT) -------------------------------------------------
+
+CLIENTES_PATH = DATA_DIR / "clientes_mayoristas.csv"
+_COLUMNAS_CLIENTES = ["rut", "cliente", "razon_social", "contacto", "actualizado"]
+_PATRON_MANTENER = re.compile(r"^\s*(igual|mantener|mant[eé]n\w*|ok|s[ií]|el mismo|la misma)\s*[.!]*\s*$",
+                              re.IGNORECASE)
+
+
+def normalizar_rut(texto: str) -> tuple[str | None, str | None]:
+    """'77963899-5' / '77.963.899-5' -> '77.963.899-5'. Valida el digito
+    verificador (modulo 11). Devuelve (rut, error)."""
+    limpio = re.sub(r"[^0-9kK]", "", texto).upper()
+    if len(limpio) < 7 or not limpio[:-1].isdigit():
+        return None, "No reconozco ese RUT. Escríbelo así: 76.123.456-7 (o \"omitir\")."
+    cuerpo, dv = limpio[:-1], limpio[-1]
+    suma, factor = 0, 2
+    for d in reversed(cuerpo):
+        suma += int(d) * factor
+        factor = 2 if factor == 7 else factor + 1
+    esperado = {11: "0", 10: "K"}.get(11 - suma % 11, str(11 - suma % 11))
+    if dv != esperado:
+        return None, f"El RUT {texto.strip()} no es válido (el dígito verificador debería ser {esperado}). Revísalo."
+    return f"{int(cuerpo):,}".replace(",", ".") + f"-{dv}", None
+
+
+def _cargar_clientes() -> pd.DataFrame:
+    if not CLIENTES_PATH.exists():
+        return pd.DataFrame(columns=_COLUMNAS_CLIENTES)
+    return pd.read_csv(CLIENTES_PATH, dtype=str).fillna("")
+
+
+def buscar_cliente(rut: str) -> dict | None:
+    df = _cargar_clientes()
+    fila = df[df["rut"] == rut]
+    return fila.iloc[0].to_dict() if len(fila) else None
+
+
+def guardar_cliente(estado: dict) -> None:
+    """Crea o actualiza el cliente por su RUT (sin RUT no se guarda)."""
+    if not estado.get("rut"):
+        return
+    df = _cargar_clientes()
+    df = df[df["rut"] != estado["rut"]]
+    nuevo = {"rut": estado["rut"], "cliente": estado["cliente"], "razon_social": estado.get("razon_social", ""),
+             "contacto": estado.get("contacto", ""), "actualizado": date.today().isoformat()}
+    df = pd.concat([df, pd.DataFrame([nuevo])], ignore_index=True)
+    CLIENTES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(CLIENTES_PATH, index=False)
+
+
+def _datos_cliente_texto(estado: dict) -> str:
+    lineas = [f"Cliente: {estado['cliente']}", f"RUT: {estado['rut']}"]
+    if estado.get("razon_social"):
+        lineas.append(f"Razón social: {estado['razon_social']}")
+    if estado.get("contacto"):
+        lineas.append(f"Contacto: {estado['contacto']}")
+    return "\n".join(lineas)
 
 
 def siguiente_pregunta(estado: dict) -> str:
     paso = estado["preguntando"]
+    if paso == "confirmar_cliente":
+        return ("Encontré este cliente:\n" + _datos_cliente_texto(estado)
+                + "\n\n¿Uso estos datos? Responde \"sí\" o \"actualizar\".")
+    if paso in ("cliente", "razon_social", "contacto") and estado.get("actualizando") and estado.get(paso):
+        return f"{PREGUNTAS[paso]}\n(Actual: {estado[paso]}; responde \"igual\" para mantenerlo)"
     if paso == "productos":
         return ("¿Qué productos van en la cotización? Responde los números de la lista (ej. \"1, 4, 9\") y "
                 "después te pregunto las cantidades. También puedes mandar todo junto: \"1x24, 4x12\" "
@@ -577,13 +645,39 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
     paso = estado["preguntando"]
     texto = texto.strip()
     omitido = bool(_PATRON_OMITIR.match(texto))
+    mantener = estado.get("actualizando") and bool(_PATRON_MANTENER.match(texto))
 
-    if paso == "cliente":
-        if not texto or omitido:
-            return "Necesito el nombre de la cafetería o empresa para la cotización."
-        estado["cliente"] = texto
-    elif paso in ("rut", "contacto", "observaciones"):
-        estado[paso] = "" if omitido else texto
+    if paso == "rut":
+        if omitido:
+            estado["rut"] = ""
+        else:
+            rut, error = normalizar_rut(texto)
+            if error:
+                return error
+            estado["rut"] = rut
+            guardado = buscar_cliente(rut)
+            if guardado:
+                for campo in ("cliente", "razon_social", "contacto"):
+                    estado[campo] = guardado.get(campo, "")
+                estado["preguntando"] = "confirmar_cliente"
+                return None
+    elif paso == "confirmar_cliente":
+        if re.match(r"^\s*(actualiz|cambi|modific|corrig|no\b)", texto, re.IGNORECASE):
+            estado["actualizando"] = True
+            estado["preguntando"] = "cliente"
+            return None
+        if not es_si(texto):
+            return "Responde \"sí\" para usar estos datos o \"actualizar\" para cambiarlos."
+        estado["preguntando"] = "productos"
+        return None
+    elif paso == "cliente":
+        if not mantener:
+            if not texto or omitido:
+                return "Necesito el nombre de la cafetería o empresa para la cotización."
+            estado["cliente"] = texto
+    elif paso in ("razon_social", "contacto", "observaciones"):
+        if not mantener:
+            estado[paso] = "" if omitido else texto
     elif paso == "productos":
         seleccion = seleccion_sin_cantidades(texto)
         if seleccion is not None:
@@ -654,7 +748,9 @@ def formatear_resumen(estado: dict) -> str:
     c = calcular(estado)
     lineas = [f"Cotización para {estado['cliente']}"]
     if estado["rut"]:
-        lineas.append(f"RUT / razón social: {estado['rut']}")
+        lineas.append(f"RUT: {estado['rut']}")
+    if estado.get("razon_social"):
+        lineas.append(f"Razón social: {estado['razon_social']}")
     if estado["contacto"]:
         lineas.append(f"Contacto: {estado['contacto']}")
     lineas.append("\nDetalle por despacho:")
@@ -712,7 +808,9 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
     # Datos del cliente
     datos = [["Cliente", estado["cliente"]]]
     if estado["rut"]:
-        datos.append(["RUT / razón social", estado["rut"]])
+        datos.append(["RUT", estado["rut"]])
+    if estado.get("razon_social"):
+        datos.append(["Razón social", estado["razon_social"]])
     if estado["contacto"]:
         datos.append(["Contacto", estado["contacto"]])
     datos += [["Fecha", hoy.strftime("%d-%m-%Y")],
@@ -778,6 +876,7 @@ def generar_pdf_cotizacion(estado: dict) -> Path:
                  Spacer(1, 8), _pie()]
     _doc(ruta, f"Cotización {numero:04d} – Panadería Artesanal Malatesta").build(historia)
     _registrar_cotizacion(numero, hoy, estado["cliente"], c["total"], ruta)
+    guardar_cliente(estado)
     return ruta
 
 
