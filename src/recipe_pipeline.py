@@ -17,6 +17,7 @@ import re
 import unicodedata
 
 from . import ingest
+from . import recipe_checks
 from . import recipe_import
 from . import recipe_standardize as rs
 from . import tools as t
@@ -386,6 +387,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
             return f"Sobre \"{ing.texto_original}\": no reconocí esa unidad -- prueba con g, kg, mL, L o unidad."
         ing.cantidad_lote = cantidad_conv
         ing.unidad_estandar = unidad_conv
+        ing.confirmado_por_usuario = True
         return None
 
     if tipo == "peso_real":
@@ -395,6 +397,7 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
             return f"Sobre \"{ing.texto_original}\": dime el peso en gramos, ej. \"4 g\" o solo \"4\"."
         ing.cantidad_lote = float(m.group(1).replace(",", "."))
         ing.unidad_estandar = "g"
+        ing.confirmado_por_usuario = True
         receta.conversiones_notas.append(f"{ing.insumo_resuelto}: peso real confirmado por Raúl -> {ing.cantidad_lote:g} g (reemplaza la conversión de volumen de arriba).")
         return None
 
@@ -574,6 +577,12 @@ def formatear_resumen(estado: dict) -> str:
         partes.append("Sin costear todavía (unidad incompatible con la del insumo, no calculado para no inventar):")
         for linea in costeo["sin_costear"]:
             partes.append(f"  - {linea}")
+
+    coherencia = recipe_checks.revisar(estado, costeo)
+    if coherencia:
+        partes.append("\n⚠️ Revisa antes de guardar:")
+        for adv in coherencia:
+            partes.append(f"  - {adv}")
 
     if estado["metadata"].advertencias:
         partes.append("\n⚠️ Advertencias de la extracción:")

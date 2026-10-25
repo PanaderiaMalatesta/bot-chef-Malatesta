@@ -131,6 +131,7 @@ class IngredienteEstandarizado:
     cantidad_original: float | None = None  # tal cual la fuente, para poder reconvertir
     unidad_original: str | None = None  # una vez que se resuelva una ambiguedad (recien
     # ahi se sabe el insumo real y se puede aplicar la equivalencia de panaderia)
+    confirmado_por_usuario: bool = False  # Raul escribio la cantidad a mano (ver recipe_checks)
 
 
 @dataclass
