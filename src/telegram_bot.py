@@ -321,6 +321,10 @@ _PATRON_VER_CLIENTES = re.compile(
     re.IGNORECASE,
 )
 _PATRON_RELLENO_CLIENTES = re.compile(r"^\s*(tengo|hay|guardados?|mayoristas?)\b", re.IGNORECASE)
+# Sin la palabra "cliente" ("ficha de nicolas gedda"): solo se atiende aca si el
+# nombre calza con un cliente; "datos del alfajor" sigue siendo para el agente.
+_PATRON_FICHA_NOMBRE = re.compile(r"\b(?:ficha|datos|informaci[oó]n|info)\s+del?\s+(?P<busqueda>(?:(?!cotiza).)+)$",
+                                  re.IGNORECASE)
 MAX_CLIENTES_LISTA = 30
 
 
@@ -547,6 +551,13 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         busqueda = consulta_clientes.group("busqueda")
         await _consultar_clientes(update, chat_id, "" if _PATRON_RELLENO_CLIENTES.match(busqueda) else busqueda)
         return
+
+    ficha_nombre = _PATRON_FICHA_NOMBRE.search(texto)
+    if ficha_nombre:
+        encontrados = mayorista.consultar_clientes(ficha_nombre.group("busqueda"))
+        if encontrados:
+            await _mostrar_opciones_clientes(update, chat_id, encontrados)
+            return
 
     if _PATRON_AGREGAR_MAYORISTA.search(texto):
         await _iniciar_gestion_mayorista(update, chat_id, "agregar")

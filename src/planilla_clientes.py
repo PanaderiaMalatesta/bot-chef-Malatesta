@@ -2,8 +2,8 @@
 
 Solo se lee la planilla y solo cuando alguien lo pide: se descarga, se compara y,
 tras confirmar en el chat, sus datos reemplazan a los del bot. Cada cliente se
-reconoce por su RUT. Los que estan solo en el bot se mantienen, para no perder
-un cliente recien cotizado que aun no se copia a la planilla.
+reconoce por su RUT. La planilla manda: quien ya no esta en ella sale del bot,
+y por eso la confirmacion lo nombra antes y queda un respaldo.
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class Comparacion:
 
     @property
     def hay_cambios(self) -> bool:
-        return bool(self.nuevos or self.cambios)
+        return bool(self.nuevos or self.cambios or self.solo_bot)
 
 
 def descargar_filas() -> list[list[str]]:
@@ -133,7 +133,8 @@ def comparar(filas: list[list[str]]) -> Comparacion:
 
 
 def comparacion_texto(c: Comparacion) -> str:
-    lineas = [f"Comparé la planilla con el bot: {len(c.nuevos)} nuevos y {len(c.cambios)} con cambios."]
+    lineas = [f"Comparé la planilla con el bot: {len(c.nuevos)} nuevos, {len(c.cambios)} con cambios "
+              f"y {len(c.solo_bot)} para eliminar."]
     if c.nuevos:
         lineas += ["", "Nuevos:"] + [f"- {n['cliente']} (RUT {n['rut']})" for n in c.nuevos]
     if c.cambios:
@@ -143,7 +144,8 @@ def comparacion_texto(c: Comparacion) -> str:
             lineas += [f"  {nombre}: {antes or 'vacío'} → {despues or 'vacío'}"
                        for nombre, antes, despues in _diferencias(actual, nuevo)]
     if c.solo_bot:
-        lineas += ["", "Solo en el bot (se mantienen):"] + [f"- {s['cliente']} (RUT {s['rut']})" for s in c.solo_bot]
+        lineas += ["", "Se eliminan del bot porque no están en la planilla:"]
+        lineas += [f"- {s['cliente']} (RUT {s['rut']})" for s in c.solo_bot]
     if c.sin_rut:
         lineas += ["", "Sin RUT en la planilla (no se cargan):"] + [f"- {s}" for s in c.sin_rut]
     if not c.hay_cambios:
@@ -155,8 +157,11 @@ def comparacion_texto(c: Comparacion) -> str:
 
 def reemplazar(c: Comparacion) -> str:
     """Aplica lo mostrado, con respaldo previo. Un cliente sin cambios conserva su
-    fecha, y los creados mientras se esperaba la confirmacion no se pierden."""
+    fecha. Solo se elimina a quienes se nombraron: uno creado mientras se esperaba
+    la confirmacion no se pierde."""
     actuales = {f["rut"]: f for f in mayorista._cargar_clientes().to_dict("records")}
+    for eliminado in c.solo_bot:
+        actuales.pop(eliminado["rut"], None)
     hoy = date.today().isoformat()
     filas = []
     for cliente in c.filas:
@@ -172,4 +177,5 @@ def reemplazar(c: Comparacion) -> str:
     temporal = ruta.with_suffix(".tmp")
     pd.DataFrame(filas, columns=mayorista._COLUMNAS_CLIENTES).to_csv(temporal, index=False)
     temporal.replace(ruta)
-    return f"Listo: {len(c.nuevos)} nuevos y {len(c.cambios)} actualizados. Dejé un respaldo de los datos anteriores."
+    return (f"Listo: {len(c.nuevos)} nuevos, {len(c.cambios)} actualizados y {len(c.solo_bot)} eliminados. "
+            "Dejé un respaldo de los datos anteriores.")
