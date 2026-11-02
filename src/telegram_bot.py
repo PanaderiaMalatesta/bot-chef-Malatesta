@@ -24,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import acceso, mayorista, planilla_clientes, recipe_import, recipe_pipeline, sync_server
+from . import acceso, drive_clientes, facturas, mayorista, planilla_clientes, recipe_import, recipe_pipeline, sync_server
 from .agent import build_agent
 
 load_dotenv()
@@ -187,6 +187,15 @@ async def _iniciar_cotizacion(update: Update, chat_id: int) -> None:
     )
 
 
+async def _guardar_cotizacion_en_drive(update: Update, ruta, estado: dict) -> None:
+    if not drive_clientes.configurado():
+        return
+    try:
+        await asyncio.to_thread(drive_clientes.subir_cotizacion, ruta, estado.get("rut", ""), estado["cliente"])
+    except drive_clientes.ErrorDrive:
+        await update.message.reply_text("No pude guardar esta cotización en Drive. Para reintentar: /subircotizaciones")
+
+
 async def _continuar_cotizacion(update: Update, chat_id: int, texto: str) -> None:
     estado = _chat_cotizacion[chat_id]
     if re.match(r"^\s*(cancela\w*|descarta\w*|olv[ií]da(?:lo|la)?|detente|basta)\s*[.!]*\s*$", texto, re.IGNORECASE):
@@ -200,6 +209,7 @@ async def _continuar_cotizacion(update: Update, chat_id: int, texto: str) -> Non
             del _chat_cotizacion[chat_id]
             numero = int(ruta.name.split("_")[1])
             await _enviar_pdf(update, ruta, caption=f"Cotización N° {numero:04d} para {estado['cliente']}")
+            await _guardar_cotizacion_en_drive(update, ruta, estado)
             return
         if mayorista.pide_editar_productos(texto):
             mayorista.volver_a_productos(estado)
@@ -330,7 +340,8 @@ MAX_CLIENTES_LISTA = 30
 
 async def _mostrar_ficha(update: Update, chat_id: int, cliente: dict) -> None:
     _chat_clientes.pop(chat_id, None)
-    texto, tiene_cotizaciones = mayorista.ficha_cliente(cliente)
+    texto, tiene_cotizaciones = mayorista.ficha_cliente(cliente, facturas=facturas.de_cliente(cliente),
+                                                        carpeta=drive_clientes.link_carpeta(cliente))
     if tiene_cotizaciones:
         _chat_ver_cotizaciones.add(chat_id)
     await update.message.reply_text(texto)
@@ -431,8 +442,130 @@ async def sincronizar_clientes(update: Update, context: ContextTypes.DEFAULT_TYP
     await _iniciar_sincronizacion(update, update.effective_chat.id)
 
 
+# Facturas: se adjuntan en un flujo de preguntas y quedan en la carpeta Drive del
+# cliente. "Factura" tambien es un producto de la panaderia: una frase con numeros
+# o que habla de precios, recetas o la lista mayorista sigue su camino normal.
+_chat_factura: dict[int, dict] = {}
+_chat_asociar: dict[int, dict] = {}
+
+_PATRON_ASOCIAR_FACTURA = re.compile(r"\basoci\w*\b.*\bfacturas?\b|\bfacturas?\b.*\basoci\w*\b", re.IGNORECASE)
+_PATRON_ADJUNTAR_FACTURA = re.compile(r"\b(adjunt|agreg|sub|carg|registr|guard|anex)\w*\b.*\bfacturas?\b", re.IGNORECASE)
+_PATRON_FACTURA_PRODUCTO = re.compile(r"\d|mayor|precio|receta|costo|insumo|producci", re.IGNORECASE)
+_AVISO_SIN_DRIVE = "La conexión con Drive todavía no está configurada."
+
+
+async def _iniciar_factura(update: Update, chat_id: int) -> None:
+    if not drive_clientes.configurado():
+        await update.message.reply_text(_AVISO_SIN_DRIVE)
+        return
+    _chat_clientes.pop(chat_id, None)
+    _chat_ver_cotizaciones.discard(chat_id)
+    _chat_factura[chat_id] = facturas.iniciar()
+    await update.message.reply_text(facturas.siguiente_pregunta(_chat_factura[chat_id]))
+
+
+async def _continuar_factura(update: Update, chat_id: int, texto: str) -> None:
+    estado = _chat_factura[chat_id]
+    if _PATRON_CANCELAR_FLUJO.match(texto):
+        del _chat_factura[chat_id]
+        await update.message.reply_text("Ok, no guardé la factura.")
+        return
+    if estado["preguntando"] == "confirmacion":
+        if not mayorista.es_si(texto):
+            await update.message.reply_text('Responde "sí" para guardarla o "cancelar".')
+            return
+        await update.message.reply_text("Subiendo la factura...")
+        try:
+            mensaje = await asyncio.to_thread(facturas.guardar, estado)
+        except drive_clientes.ErrorDrive:
+            await update.message.reply_text('No pude subirla a Drive. Responde "sí" para reintentar o "cancelar".')
+            return
+        del _chat_factura[chat_id]
+        await update.message.reply_text(mensaje)
+        return
+    error = facturas.aplicar_respuesta(estado, texto)
+    await update.message.reply_text(error or facturas.siguiente_pregunta(estado))
+
+
+async def _recibir_archivo_factura(update: Update, chat_id: int, archivo, tipo: str | None, tamano: int | None) -> None:
+    estado = _chat_factura[chat_id]
+    if estado["preguntando"] != "archivo":
+        await update.message.reply_text("Todavía no necesito el archivo.\n\n" + facturas.siguiente_pregunta(estado))
+        return
+    if tipo not in ("application/pdf", "image/jpeg", "image/png"):
+        await update.message.reply_text("Envíame la factura en PDF, JPG o PNG.")
+        return
+    if tamano and tamano > facturas.MAX_BYTES:
+        await update.message.reply_text("El archivo es demasiado grande: el máximo es 20 MB.")
+        return
+    descarga = await archivo.get_file()
+    facturas.recibir_archivo(estado, bytes(await descarga.download_as_bytearray()), tipo)
+    await update.message.reply_text(facturas.siguiente_pregunta(estado))
+
+
+async def recibir_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    if chat_id not in _chat_factura:
+        await update.message.reply_text("Para adjuntar una factura, primero escribe /factura.")
+        return
+    documento = update.message.document
+    await _recibir_archivo_factura(update, chat_id, documento, documento.mime_type, documento.file_size)
+
+
+async def _iniciar_asociar(update: Update, chat_id: int) -> None:
+    if not drive_clientes.configurado():
+        await update.message.reply_text(_AVISO_SIN_DRIVE)
+        return
+    estado = facturas.iniciar_asociar()
+    if estado is None:
+        await update.message.reply_text("No hay facturas sin cotización.")
+        return
+    _chat_asociar[chat_id] = estado
+    await update.message.reply_text(facturas.siguiente_pregunta_asociar(estado))
+
+
+async def _continuar_asociar(update: Update, chat_id: int, texto: str) -> None:
+    estado = _chat_asociar[chat_id]
+    if _PATRON_CANCELAR_FLUJO.match(texto):
+        del _chat_asociar[chat_id]
+        await update.message.reply_text("Ok, no cambié nada.")
+        return
+    try:
+        mensaje, terminado = await asyncio.to_thread(facturas.aplicar_asociar, estado, texto)
+    except drive_clientes.ErrorDrive:
+        await update.message.reply_text('No pude actualizarla en Drive. Responde el número de nuevo o "cancelar".')
+        return
+    if terminado:
+        del _chat_asociar[chat_id]
+    await update.message.reply_text(mensaje or facturas.siguiente_pregunta_asociar(estado))
+
+
+async def factura(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _iniciar_factura(update, update.effective_chat.id)
+
+
+async def asociar_factura(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _iniciar_asociar(update, update.effective_chat.id)
+
+
+async def subir_cotizaciones(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not drive_clientes.configurado():
+        await update.message.reply_text(_AVISO_SIN_DRIVE)
+        return
+    await update.message.reply_text("Guardando las cotizaciones en Drive...")
+    subidas, ya_estaban, errores = await asyncio.to_thread(drive_clientes.subir_cotizaciones_pendientes)
+    texto = f"Listo: {subidas} subidas y {ya_estaban} ya estaban."
+    if errores:
+        texto += f" {errores} fallaron; vuelve a escribir /subircotizaciones para reintentar."
+    await update.message.reply_text(texto)
+
+
 async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
+    if chat_id in _chat_factura:
+        foto = update.message.photo[-1]
+        await _recibir_archivo_factura(update, chat_id, foto, "image/jpeg", foto.file_size)
+        return
     archivo = await update.message.photo[-1].get_file()
     contenido = bytes(await archivo.download_as_bytearray())
     try:
@@ -463,6 +596,8 @@ def _olvidar_chat(chat_id: int) -> None:
         estado.pop(chat_id, None)
     _chat_clientes.pop(chat_id, None)
     _chat_sincronizacion.pop(chat_id, None)
+    _chat_factura.pop(chat_id, None)
+    _chat_asociar.pop(chat_id, None)
     _chat_ver_cotizaciones.discard(chat_id)
 
 
@@ -500,7 +635,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
         "fabricación para un pedido, o el costo de producción del día. "
-        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /sincronizarclientes, /listamayorista, "
+        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /sincronizarclientes, /factura, /asociarfactura, /subircotizaciones, /listamayorista, "
         "/agregarmayorista o /quitarmayorista."
     )
 
@@ -511,6 +646,14 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if chat_id in _chat_cotizacion:
         await _continuar_cotizacion(update, chat_id, texto)
+        return
+
+    if chat_id in _chat_factura:
+        await _continuar_factura(update, chat_id, texto)
+        return
+
+    if chat_id in _chat_asociar:
+        await _continuar_asociar(update, chat_id, texto)
         return
 
     if chat_id in _chat_sincronizacion:
@@ -567,6 +710,14 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _iniciar_gestion_mayorista(update, chat_id, "quitar")
         return
 
+    if not _PATRON_FACTURA_PRODUCTO.search(texto):
+        if _PATRON_ASOCIAR_FACTURA.search(texto):
+            await _iniciar_asociar(update, chat_id)
+            return
+        if _PATRON_ADJUNTAR_FACTURA.search(texto):
+            await _iniciar_factura(update, chat_id)
+            return
+
     if _PATRON_LISTA_MAYORISTA.search(texto) and not re.search(r"\d", texto):
         await _enviar_pdf(update, mayorista.generar_pdf_lista())
         return
@@ -619,6 +770,10 @@ def main() -> None:
     app.add_handler(CommandHandler("cotizaciones", cotizaciones))
     app.add_handler(CommandHandler("clientes", clientes))
     app.add_handler(CommandHandler("sincronizarclientes", sincronizar_clientes))
+    app.add_handler(CommandHandler("factura", factura))
+    app.add_handler(CommandHandler("asociarfactura", asociar_factura))
+    app.add_handler(CommandHandler("subircotizaciones", subir_cotizaciones))
+    app.add_handler(MessageHandler(filters.Document.ALL, recibir_documento))
     app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
     app.run_polling()

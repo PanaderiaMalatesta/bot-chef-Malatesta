@@ -1059,8 +1059,10 @@ def link_mapa(cliente: dict) -> str:
     return f"https://www.google.com/maps/search/?api=1&query={quote_plus(lugar)}"
 
 
-def ficha_cliente(cliente: dict, limite: int = 10) -> tuple[str, bool]:
+def ficha_cliente(cliente: dict, limite: int = 10, facturas: list[dict] | None = None,
+                  carpeta: str = "") -> tuple[str, bool]:
     """Texto de la ficha y si tiene cotizaciones que se puedan reenviar."""
+    facturas = facturas or []
     lineas = [cliente["cliente"]]
     if cliente["rut"]:
         lineas.append(f"RUT: {cliente['rut']}")
@@ -1078,14 +1080,21 @@ def ficha_cliente(cliente: dict, limite: int = 10) -> tuple[str, bool]:
         lineas.append(f"Actualizado: {date.fromisoformat(cliente['actualizado']).strftime('%d-%m-%Y')}")
     else:
         lineas.append("Sin ficha: se cotizó sin RUT, así que no tengo sus datos guardados.")
+    if carpeta:
+        lineas.append(f"Carpeta en Drive: {carpeta}")
+    sin_cotizacion = [f"Factura {f['numero']} · {f['fecha']}" for f in facturas if not f["cotizacion"]]
+    pie_facturas = ["\nFacturas sin cotización:"] + sin_cotizacion if sin_cotizacion else []
     cotizaciones = _cotizaciones_de(cliente["cliente"])
     if not cotizaciones:
         lineas.append("\nTodavía no tiene cotizaciones.")
-        return "\n".join(lineas), False
+        return "\n".join(lineas + pie_facturas), False
     lineas.append(f"\nCotizaciones emitidas: {len(cotizaciones)}")
     for c in cotizaciones[:limite]:
         total = f" · {fmt(c['total'])}" if c["total"] is not None else ""
-        lineas.append(f"N° {c['numero']:04d} · {c['fecha']}{total}")
+        asociadas = [f["numero"] for f in facturas if f["cotizacion"] == str(c["numero"])]
+        factura = f" · Factura {', '.join(asociadas)}" if asociadas else ""
+        lineas.append(f"N° {c['numero']:04d} · {c['fecha']}{total}{factura}")
+    lineas += pie_facturas
     lineas.append(f'\nSi quieres un PDF, responde su número (ej. "{cotizaciones[0]["numero"]}").')
     return "\n".join(lineas), True
 

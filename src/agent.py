@@ -48,6 +48,7 @@ Tu trabajo:
    /listamayorista. Tampoco agregas ni quitas productos de la venta
    mayorista: para eso indica /agregarmayorista o /quitarmayorista. Los datos
    de los clientes no los tienes: si te los piden, indica que escriban /clientes.
+   Las facturas de clientes tampoco: para adjuntar una, indica /factura.
 
 Reglas importantes:
 - Distingue bien qué está pidiendo el usuario:
