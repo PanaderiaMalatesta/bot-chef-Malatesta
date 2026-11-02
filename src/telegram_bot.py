@@ -12,9 +12,18 @@ import re
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.error import TelegramError
+from telegram.ext import (
+    Application,
+    ApplicationHandlerStop,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    TypeHandler,
+    filters,
+)
 
-from . import mayorista, recipe_import, recipe_pipeline, sync_server
+from . import acceso, mayorista, recipe_import, recipe_pipeline, sync_server
 from .agent import build_agent
 
 load_dotenv()
@@ -313,6 +322,39 @@ async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _iniciar_importacion(update, chat_id, texto, metadata)
 
 
+_RESPUESTAS_ACCESO = {
+    "pedir": "Este bot es privado. Escribe la clave de acceso.",
+    "incorrecta": "Clave incorrecta. Inténtalo de nuevo.",
+    "bloqueado": "Demasiados intentos. Vuelve a intentarlo en 15 minutos.",
+    "sin_clave": "El acceso no está disponible en este momento.",
+}
+
+
+async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Corre antes que todos los demas handlers (grupo -1): si la cuenta no esta
+    autorizada, ningun comando, foto ni mensaje llega al agente."""
+    usuario = update.effective_user
+    mensaje = update.effective_message
+    if usuario is None or mensaje is None:
+        raise ApplicationHandlerStop
+    if acceso.esta_autorizado(usuario.id):
+        return
+
+    # un comando o una foto nunca cuentan como intento de clave
+    es_comando = bool(mensaje.text) and mensaje.text.startswith("/")
+    resultado = acceso.intentar_clave(usuario.id, None if es_comando else mensaje.text)
+    if resultado == "correcta":
+        # para que la clave no quede a la vista en el chat
+        try:
+            await mensaje.delete()
+        except TelegramError:
+            logging.warning("No se pudo borrar el mensaje con la clave")
+        await mensaje.chat.send_message("Clave correcta. Ya tienes acceso; escribe tu consulta.")
+    else:
+        await mensaje.reply_text(_RESPUESTAS_ACCESO[resultado])
+    raise ApplicationHandlerStop
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
@@ -403,6 +445,7 @@ def main() -> None:
     sync_server.start_background()
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     app = Application.builder().token(token).build()
+    app.add_handler(TypeHandler(Update, verificar_acceso), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cotizacion", cotizacion))
     app.add_handler(CommandHandler("listamayorista", lista_mayorista))
