@@ -28,6 +28,8 @@ from .agent import build_agent
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
+# httpx registra en INFO cada URL de Telegram, y esas URL llevan el token del bot.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Un grafo de agente + historial de mensajes por chat, para que cada
 # conversacion de Telegram tenga su propio contexto.
@@ -323,11 +325,21 @@ async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 _RESPUESTAS_ACCESO = {
-    "pedir": "Este bot es privado. Escribe la clave de acceso.",
+    "pedir": "Ingresa tu clave.",
     "incorrecta": "Clave incorrecta. Inténtalo de nuevo.",
     "bloqueado": "Demasiados intentos. Vuelve a intentarlo en 15 minutos.",
     "sin_clave": "El acceso no está disponible en este momento.",
 }
+
+
+_PATRON_SALIR = re.compile(r"\s*/?salir\s*[.!]?\s*", re.IGNORECASE)
+
+
+def _olvidar_chat(chat_id: int) -> None:
+    """Al cerrar sesion no debe quedar la conversacion ni un flujo a medias."""
+    for estado in (_chat_messages, _chat_ultima_lista, _chat_importacion, _chat_cotizacion, _chat_gestion_mayorista):
+        estado.pop(chat_id, None)
+    _chat_ver_cotizaciones.discard(chat_id)
 
 
 async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -338,6 +350,11 @@ async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if usuario is None or mensaje is None:
         raise ApplicationHandlerStop
     if acceso.esta_autorizado(usuario.id):
+        if mensaje.text and _PATRON_SALIR.fullmatch(mensaje.text):
+            acceso.cerrar_sesion(usuario.id)
+            _olvidar_chat(mensaje.chat.id)
+            await mensaje.reply_text("Sesión cerrada.")
+            raise ApplicationHandlerStop
         return
 
     # un comando o una foto nunca cuentan como intento de clave
@@ -349,7 +366,7 @@ async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await mensaje.delete()
         except TelegramError:
             logging.warning("No se pudo borrar el mensaje con la clave")
-        await mensaje.chat.send_message("Clave correcta. Ya tienes acceso; escribe tu consulta.")
+        await mensaje.chat.send_message("Clave correcta. Tu sesión dura 24 horas; escribe tu consulta.")
     else:
         await mensaje.reply_text(_RESPUESTAS_ACCESO[resultado])
     raise ApplicationHandlerStop
