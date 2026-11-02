@@ -177,6 +177,7 @@ async def _enviar_pdf(update: Update, ruta, caption: str | None = None) -> None:
 
 
 async def _iniciar_cotizacion(update: Update, chat_id: int) -> None:
+    _chat_clientes.pop(chat_id, None)
     estado = mayorista.iniciar()
     _chat_cotizacion[chat_id] = estado
     await update.message.reply_text(
@@ -309,6 +310,84 @@ async def cotizaciones(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await _mostrar_cotizaciones(update, update.effective_chat.id)
 
 
+# Consulta de clientes: lista, busqueda por nombre o RUT, y ficha con sus
+# cotizaciones. Los datos no pasan por el LLM.
+_chat_clientes: dict[int, list[dict]] = {}
+
+_PATRON_VER_CLIENTES = re.compile(
+    r"\b(?:ver|veo|lista\w*|muestra\w*|mu[eé]stra\w*|mis|busca\w*|consulta\w*|datos|informaci[oó]n|info|ficha|"
+    r"qu[eé]|cu[aá]les|cu[aá]ntos)\b(?:(?!cotiza).)*\bclientes?\b(?P<busqueda>(?:(?!cotiza).)*)$",
+    re.IGNORECASE,
+)
+_PATRON_RELLENO_CLIENTES = re.compile(r"^\s*(tengo|hay|guardados?|mayoristas?)\b", re.IGNORECASE)
+MAX_CLIENTES_LISTA = 30
+
+
+async def _mostrar_ficha(update: Update, chat_id: int, cliente: dict) -> None:
+    _chat_clientes.pop(chat_id, None)
+    texto, tiene_cotizaciones = mayorista.ficha_cliente(cliente)
+    if tiene_cotizaciones:
+        _chat_ver_cotizaciones.add(chat_id)
+    await update.message.reply_text(texto)
+
+
+async def _mostrar_opciones_clientes(update: Update, chat_id: int, encontrados: list[dict]) -> None:
+    if len(encontrados) == 1:
+        await _mostrar_ficha(update, chat_id, encontrados[0])
+        return
+    _chat_clientes[chat_id] = encontrados[:MAX_CLIENTES_LISTA]
+    await update.message.reply_text(
+        f"Encontré estos clientes:\n{mayorista.clientes_texto(_chat_clientes[chat_id])}\n\n"
+        'Responde el número para ver su ficha, escribe un nombre o RUT, o "cancelar".'
+    )
+
+
+async def _consultar_clientes(update: Update, chat_id: int, busqueda: str = "") -> None:
+    _chat_ver_cotizaciones.discard(chat_id)
+    if not busqueda.strip():
+        todos = mayorista.listar_clientes()
+        if not todos:
+            await update.message.reply_text("Todavía no hay clientes. Se guardan al hacer una /cotizacion con RUT.")
+            return
+        _chat_clientes[chat_id] = todos[:MAX_CLIENTES_LISTA]
+        await update.message.reply_text(
+            f"Clientes ({len(todos)}):\n{mayorista.clientes_texto(_chat_clientes[chat_id])}\n\n"
+            'Responde el número para ver su ficha, escribe un nombre o RUT, o "cancelar".'
+        )
+        return
+    encontrados = mayorista.consultar_clientes(busqueda)
+    if not encontrados:
+        await update.message.reply_text(f'No encontré clientes parecidos a "{busqueda.strip()}". Para ver todos: /clientes')
+        return
+    await _mostrar_opciones_clientes(update, chat_id, encontrados)
+
+
+async def _continuar_clientes(update: Update, chat_id: int, texto: str) -> bool:
+    """Devuelve False si el mensaje no era para esta consulta: se atiende como
+    mensaje normal."""
+    opciones = _chat_clientes[chat_id]
+    if _PATRON_CANCELAR_FLUJO.match(texto):
+        del _chat_clientes[chat_id]
+        await update.message.reply_text("Ok.")
+        return True
+    if re.fullmatch(r"\s*\d{1,3}\s*", texto):
+        if not 1 <= int(texto) <= len(opciones):
+            await update.message.reply_text(f'Responde un número del 1 al {len(opciones)}, o "cancelar".')
+            return True
+        await _mostrar_ficha(update, chat_id, opciones[int(texto) - 1])
+        return True
+    encontrados = mayorista.consultar_clientes(texto)
+    if not encontrados:
+        del _chat_clientes[chat_id]
+        return False
+    await _mostrar_opciones_clientes(update, chat_id, encontrados)
+    return True
+
+
+async def clientes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _consultar_clientes(update, update.effective_chat.id, " ".join(context.args or []))
+
+
 async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     archivo = await update.message.photo[-1].get_file()
@@ -339,6 +418,7 @@ def _olvidar_chat(chat_id: int) -> None:
     """Al cerrar sesion no debe quedar la conversacion ni un flujo a medias."""
     for estado in (_chat_messages, _chat_ultima_lista, _chat_importacion, _chat_cotizacion, _chat_gestion_mayorista):
         estado.pop(chat_id, None)
+    _chat_clientes.pop(chat_id, None)
     _chat_ver_cotizaciones.discard(chat_id)
 
 
@@ -376,7 +456,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
         "fabricación para un pedido, o el costo de producción del día. "
-        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /listamayorista, "
+        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /listamayorista, "
         "/agregarmayorista o /quitarmayorista."
     )
 
@@ -387,6 +467,9 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if chat_id in _chat_cotizacion:
         await _continuar_cotizacion(update, chat_id, texto)
+        return
+
+    if chat_id in _chat_clientes and await _continuar_clientes(update, chat_id, texto):
         return
 
     if chat_id in _chat_ver_cotizaciones:
@@ -411,6 +494,12 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # con un numero es casi seguro un cambio de precio ("sube el alfajor de la
     # lista mayorista a 2000"), eso lo resuelve el agente
+    consulta_clientes = _PATRON_VER_CLIENTES.search(texto)
+    if consulta_clientes:
+        busqueda = consulta_clientes.group("busqueda")
+        await _consultar_clientes(update, chat_id, "" if _PATRON_RELLENO_CLIENTES.match(busqueda) else busqueda)
+        return
+
     if _PATRON_AGREGAR_MAYORISTA.search(texto):
         await _iniciar_gestion_mayorista(update, chat_id, "agregar")
         return
@@ -469,6 +558,7 @@ def main() -> None:
     app.add_handler(CommandHandler("agregarmayorista", agregar_mayorista))
     app.add_handler(CommandHandler("quitarmayorista", quitar_mayorista))
     app.add_handler(CommandHandler("cotizaciones", cotizaciones))
+    app.add_handler(CommandHandler("clientes", clientes))
     app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
     app.run_polling()

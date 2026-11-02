@@ -455,14 +455,14 @@ def _misma_palabra(buscada: str, palabra: str) -> bool:
     return len(buscada) >= 4 and SequenceMatcher(None, buscada, palabra).ratio() >= 0.8
 
 
-def buscar_clientes_por_nombre(texto: str) -> list[dict]:
+def buscar_clientes_por_nombre(texto: str, clientes: list[dict] | None = None) -> list[dict]:
     """Clientes parecidos a `texto`, los mas parecidos primero. Una palabra
     generica ("restaurante") solo basta si no se busco nada mas especifico; asi
     "cafeteria del brujo" no ofrece todas las cafeterias."""
     buscadas = _palabras_nombre(texto)
     especificas = [p for p in buscadas if p not in _PALABRAS_GENERICAS_CLIENTE] or buscadas
     encontrados = []
-    for fila in _cargar_clientes().to_dict("records"):
+    for fila in _cargar_clientes().to_dict("records") if clientes is None else clientes:
         palabras = _palabras_nombre(f"{fila['cliente']} {fila['razon_social']}")
         if not any(_misma_palabra(b, p) for b in especificas for p in palabras):
             continue
@@ -1004,6 +1004,65 @@ def buscar_cotizacion(texto: str) -> tuple[Path | None, str | None]:
         if c["numero"] == numero:
             return COTIZACIONES_DIR / c["archivo"], None
     return None, f"No encontré la cotización N° {numero:04d}. Responde otro número o \"cancelar\"."
+
+
+# --- Consulta de clientes (solo lectura) ----------------------------------------
+#
+# Una cotizacion sin RUT no guarda al cliente, asi que tambien se listan los que
+# solo aparecen en el historial. El registro no tiene RUT: las cotizaciones de un
+# cliente se reconocen por su nombre.
+
+def _cotizaciones_de(nombre: str) -> list[dict]:
+    return [c for c in listar_cotizaciones() if _normalizar(c["cliente"]) == _normalizar(nombre)]
+
+
+def listar_clientes() -> list[dict]:
+    clientes = _cargar_clientes().to_dict("records")
+    nombres = {_normalizar(c["cliente"]) for c in clientes}
+    for cotizacion in listar_cotizaciones():
+        if _normalizar(cotizacion["cliente"]) not in nombres:
+            nombres.add(_normalizar(cotizacion["cliente"]))
+            clientes.append({"rut": "", "cliente": cotizacion["cliente"], "razon_social": "", "contacto": "",
+                             "actualizado": ""})
+    return sorted(clientes, key=lambda c: _normalizar(c["cliente"]))
+
+
+def consultar_clientes(texto: str) -> list[dict]:
+    """Busca por RUT si el texto parece uno; si no, por nombre o razon social."""
+    if _PATRON_PARECE_RUT.fullmatch(texto.strip()):
+        rut, _ = normalizar_rut(texto)
+        return [c for c in listar_clientes() if c["rut"] == rut] if rut else []
+    return buscar_clientes_por_nombre(texto, listar_clientes())
+
+
+def clientes_texto(clientes: list[dict]) -> str:
+    lineas = []
+    for i, c in enumerate(clientes, start=1):
+        detalle = f" ({c['razon_social'] or 'sin razón social'}, RUT {c['rut']})" if c["rut"] else " (sin ficha)"
+        lineas.append(f"{i}. {c['cliente']}{detalle}")
+    return "\n".join(lineas)
+
+
+def ficha_cliente(cliente: dict, limite: int = 10) -> tuple[str, bool]:
+    """Texto de la ficha y si tiene cotizaciones que se puedan reenviar."""
+    lineas = [cliente["cliente"]]
+    if cliente["rut"]:
+        lineas.append(f"RUT: {cliente['rut']}")
+        lineas.append(f"Razón social: {cliente['razon_social'] or 'sin dato'}")
+        lineas.append(f"Contacto: {cliente['contacto'] or 'sin dato'}")
+        lineas.append(f"Actualizado: {date.fromisoformat(cliente['actualizado']).strftime('%d-%m-%Y')}")
+    else:
+        lineas.append("Sin ficha: se cotizó sin RUT, así que no tengo sus datos guardados.")
+    cotizaciones = _cotizaciones_de(cliente["cliente"])
+    if not cotizaciones:
+        lineas.append("\nTodavía no tiene cotizaciones.")
+        return "\n".join(lineas), False
+    lineas.append(f"\nCotizaciones emitidas: {len(cotizaciones)}")
+    for c in cotizaciones[:limite]:
+        total = f" · {fmt(c['total'])}" if c["total"] is not None else ""
+        lineas.append(f"N° {c['numero']:04d} · {c['fecha']}{total}")
+    lineas.append(f'\nSi quieres un PDF, responde su número (ej. "{cotizaciones[0]["numero"]}").')
+    return "\n".join(lineas), True
 
 
 # --- Agregar / quitar productos de la venta mayorista -------------------------
