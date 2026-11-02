@@ -325,7 +325,7 @@ async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 _RESPUESTAS_ACCESO = {
-    "pedir": "Ingresa tu clave.",
+    "pedir": "¡Hola! Tu sesión está cerrada. Por favor, ingresa tu clave para continuar.",
     "incorrecta": "Clave incorrecta. Inténtalo de nuevo.",
     "bloqueado": "Demasiados intentos. Vuelve a intentarlo en 15 minutos.",
     "sin_clave": "El acceso no está disponible en este momento.",
