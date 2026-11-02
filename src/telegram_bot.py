@@ -24,7 +24,18 @@ from telegram.ext import (
     filters,
 )
 
-from . import acceso, drive_clientes, facturas, mayorista, planilla_clientes, recipe_import, recipe_pipeline, sync_server
+from . import (
+    acceso,
+    drive_clientes,
+    facturas,
+    mayorista,
+    planilla_clientes,
+    planilla_recetas,
+    recipe_import,
+    recipe_pipeline,
+    sync_automatica,
+    sync_server,
+)
 from .agent import build_agent
 
 load_dotenv()
@@ -411,6 +422,54 @@ _chat_sincronizacion: dict[int, planilla_clientes.Comparacion] = {}
 _PATRON_SINCRONIZAR = re.compile(r"\b(sincroniz|actualiz)\w*\b.*\b(clientes|planilla)\b", re.IGNORECASE)
 
 
+# Recetas e insumos: el mismo camino, desde su propia planilla.
+_chat_sync_recetas: dict[int, planilla_recetas.Comparacion] = {}
+
+_PATRON_SINCRONIZAR_RECETAS = re.compile(
+    r"\bsincroniz\w*\b.*\b(recetas|insumos|precios)\b|\bactualiz\w*\b.*\bplanilla\b.*\b(recetas|insumos|precios)\b",
+    re.IGNORECASE,
+)
+
+
+async def _iniciar_sync_recetas(update: Update, chat_id: int) -> None:
+    await update.message.reply_text("Descargando la planilla de recetas...")
+    try:
+        filas_recetas, filas_insumos = await asyncio.to_thread(planilla_recetas.descargar)
+        comparacion = planilla_recetas.comparar(filas_recetas, filas_insumos)
+    except planilla_clientes.ErrorPlanilla as exc:
+        await update.message.reply_text(str(exc))
+        return
+    if comparacion.hay_cambios:
+        _chat_sync_recetas[chat_id] = comparacion
+    else:
+        planilla_recetas.registrar_base(comparacion)
+    await update.message.reply_text(planilla_recetas.comparacion_texto(comparacion))
+
+
+async def _continuar_sync_recetas(update: Update, chat_id: int, texto: str) -> None:
+    if _PATRON_CANCELAR_FLUJO.match(texto) or re.fullmatch(r"\s*no\s*[.!]*\s*", texto, re.IGNORECASE):
+        del _chat_sync_recetas[chat_id]
+        await update.message.reply_text("Ok, no cambié nada.")
+        return
+    if not mayorista.es_si(texto):
+        await update.message.reply_text('Responde "sí" para reemplazar o "cancelar".')
+        return
+    await update.message.reply_text(planilla_recetas.reemplazar(_chat_sync_recetas.pop(chat_id)))
+
+
+async def avisos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    sync_automatica.guardar_chat_avisos(update.effective_chat.id)
+    await update.message.reply_text("Listo: los avisos de la sincronización automática llegarán a este chat.")
+
+
+async def _iniciar_sync_automatica(app: Application) -> None:
+    app.create_task(sync_automatica.bucle(app))
+
+
+async def sincronizar_recetas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _iniciar_sync_recetas(update, update.effective_chat.id)
+
+
 async def _iniciar_sincronizacion(update: Update, chat_id: int) -> None:
     _chat_clientes.pop(chat_id, None)
     _chat_ver_cotizaciones.discard(chat_id)
@@ -596,6 +655,7 @@ def _olvidar_chat(chat_id: int) -> None:
         estado.pop(chat_id, None)
     _chat_clientes.pop(chat_id, None)
     _chat_sincronizacion.pop(chat_id, None)
+    _chat_sync_recetas.pop(chat_id, None)
     _chat_factura.pop(chat_id, None)
     _chat_asociar.pop(chat_id, None)
     _chat_ver_cotizaciones.discard(chat_id)
@@ -635,7 +695,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
         "fabricación para un pedido, o el costo de producción del día. "
-        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /sincronizarclientes, /factura, /asociarfactura, /subircotizaciones, /listamayorista, "
+        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /sincronizarclientes, /sincronizarrecetas, /avisos, /factura, /asociarfactura, /subircotizaciones, /listamayorista, "
         "/agregarmayorista o /quitarmayorista."
     )
 
@@ -656,8 +716,16 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _continuar_asociar(update, chat_id, texto)
         return
 
+    if chat_id in _chat_sync_recetas:
+        await _continuar_sync_recetas(update, chat_id, texto)
+        return
+
     if chat_id in _chat_sincronizacion:
         await _continuar_sincronizacion(update, chat_id, texto)
+        return
+
+    if _PATRON_SINCRONIZAR_RECETAS.search(texto):
+        await _iniciar_sync_recetas(update, chat_id)
         return
 
     if _PATRON_SINCRONIZAR.search(texto):
@@ -760,7 +828,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 def main() -> None:
     sync_server.start_background()
     token = os.environ["TELEGRAM_BOT_TOKEN"]
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(_iniciar_sync_automatica).build()
     app.add_handler(TypeHandler(Update, verificar_acceso), group=-1)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cotizacion", cotizacion))
@@ -770,6 +838,8 @@ def main() -> None:
     app.add_handler(CommandHandler("cotizaciones", cotizaciones))
     app.add_handler(CommandHandler("clientes", clientes))
     app.add_handler(CommandHandler("sincronizarclientes", sincronizar_clientes))
+    app.add_handler(CommandHandler("sincronizarrecetas", sincronizar_recetas))
+    app.add_handler(CommandHandler("avisos", avisos))
     app.add_handler(CommandHandler("factura", factura))
     app.add_handler(CommandHandler("asociarfactura", asociar_factura))
     app.add_handler(CommandHandler("subircotizaciones", subir_cotizaciones))

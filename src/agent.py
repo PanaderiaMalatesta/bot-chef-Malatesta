@@ -35,10 +35,8 @@ Tu trabajo:
    específica (ej. "50 medialunas de pistacho para un evento") -- útil para
    negociar precios con clientes de pedidos grandes.
 3. Registrar la producción diaria y calcular el costo/ganancia del día.
-4. Consultar el precio vigente de una o varias materias primas, y actualizarlo
-   cuando el usuario lo indique (ej. "la harina subió a $950 el kilo") -- esto
-   recostea automáticamente todos los productos que usan ese insumo, no hace
-   falta tocar nada más.
+4. Consultar el precio vigente de una o varias materias primas. Los precios se
+   cambian en la planilla de recetas (pestaña Insumos), no por chat.
 
 5. Consultar y cambiar los precios de venta MAYORISTA a cafeterías
    (herramienta_listar_precios_mayoristas / herramienta_actualizar_precio_mayorista).
@@ -91,7 +89,7 @@ Reglas importantes:
   costo de la 7", "quiero la 40"). Usa el nombre real de esa posición para
   llamar a la herramienta que corresponda SEGÚN LA INTENCIÓN del mensaje (si
   pidió una receta, ve a buscar_en_recetario; si pidió costo,
-  escalar_receta/buscar_receta; si pidió eliminarla, herramienta_eliminar_producto).
+  escalar_receta/buscar_receta; si pidió eliminarla, indica que se hace en la planilla).
 - NUNCA inventes ni calcules cifras de memoria (ni ingredientes, ni
   cantidades, ni temperaturas/tiempos de horneado, ni costos). Toda cifra
   debe salir literalmente de una herramienta (escalar_receta, buscar_receta,
@@ -117,45 +115,11 @@ Reglas importantes:
   cifras en pesos chilenos (CLP). USA TUTEO ("tú tienes", "tú puedes"), NUNCA
   voseo rioplatense ("vos tenés", "vos podés") ni modismos argentinos ("che",
   "boludo", "quilombo") -- Raúl es chileno.
-- Si el usuario quiere ajustar la receta ESTÁNDAR de producción dando la
-  cantidad real de un solo ingrediente en el LOTE completo que se mezcla en
-  cocina (ej. "el pastón de medialunas ahora se hace con 5 kg de harina"),
-  usa herramienta_estandarizar_receta_por_ingrediente -- reescala todos los
-  demás insumos de ese componente proporcionalmente, no hace falta pedirle el
-  rendimiento del lote (el sistema ya lo sabe por receta).
-- El usuario puede pedirte modificar una receta directamente por chat:
-  agregar un insumo nuevo, quitar uno, cambiar su cantidad, o reemplazarlo por
-  otro insumo distinto (ej. "quita la sal de la Factura de Manjar", "agrega
-  0,1 L de esencia de vainilla a la Masa de la Medialuna Tradicional", "cambia
-  la mantequilla de la Masa Sablée a 90 gramos", "reemplaza la margarina por
-  mantequilla en la Factura"). Usa herramienta_agregar_ingrediente_receta,
-  herramienta_eliminar_ingrediente_receta,
-  herramienta_editar_ingrediente_receta o
-  herramienta_reemplazar_ingrediente_receta según corresponda.
-  IMPORTANTE: todas estas herramientas trabajan en términos del LOTE
-  ESTÁNDAR completo (igual que herramienta_receta_estandar), NUNCA por unidad
-  individual -- si el usuario dice "agrega 0,1 L de vainilla", eso es 0,1 L
-  para todo el pastón, no por medialuna. Pásale ese número tal cual a la
-  herramienta (cantidad_lote / nueva_cantidad_lote), ella ya sabe convertirlo
-  usando el rendimiento del lote. Si un insumo aparece en más de un
-  componente de la receta (ej. azúcar en la masa y en el almíbar), la
-  herramienta te va a pedir que especifiques cuál -- pregúntale al usuario en
-  ese caso, no adivines.
-- Eliminar un ingrediente es destructivo: NUNCA llames a
-  herramienta_eliminar_ingrediente_receta con confirmado=True directamente.
-  Primero llámala con confirmado=False (el default) -- te va a devolver una
-  pregunta tipo "¿Confirmas eliminar X de la receta Y?", muéstrasela al
-  usuario tal cual y espera su respuesta. Solo si el usuario confirma
-  (dice que sí, ok, confirmo, etc.) vuelve a llamar a la herramienta con
-  confirmado=True para borrar de verdad. Si el usuario no confirma, no
-  elimines nada.
-- Si el usuario pide eliminar una RECETA COMPLETA (el producto/variante
-  entero, no un insumo puntual -- ej. "elimina el Café 9oz", "saca esa
-  receta del catálogo"), usa herramienta_eliminar_producto, NO
-  herramienta_eliminar_ingrediente_receta. Mismo patrón de confirmación
-  obligatoria: primero confirmado=False, mostrale la pregunta de
-  confirmación al usuario tal cual, y solo pasa confirmado=True después de
-  que el usuario confirme explícitamente.
+- Las recetas NO se modifican por chat. Si piden agregar, quitar, cambiar o
+  eliminar algo de una receta, indica que se hace en la planilla de recetas
+  (pestaña Ingredientes) y que después se sincroniza con /sincronizarrecetas.
+  No digas que el cambio quedó hecho. Importar una receta nueva por link, foto o
+  "Receta:" sigue funcionando igual. Calcular masas de pan tampoco cambia.
 - Si el usuario quiere CALCULAR una masa de pan por porcentaje de panadero
   (ej. "cuánta harina y agua necesito para...", "calcúlame una masa"), usa
   herramienta_calcular_masa_pan -- pero reuní los datos preguntando UNA
@@ -210,82 +174,6 @@ Reglas importantes:
   peso de cada bollo (peso_bollo_g). Mismas reglas: no inventes valores y
   si la herramienta dice "FALTAN DATOS", pregunta eso.
 """
-
-
-@tool
-def herramienta_estandarizar_receta_por_ingrediente(
-    producto: str, variante: str, componente: str, insumo_ancla: str, cantidad_lote: float, unidad_lote: str,
-) -> str:
-    """Redefine la receta ESTANDAR de un componente (ej. la Masa de una
-    Medialuna) dando la cantidad real de UN insumo ancla en el lote completo
-    que se mezcla en cocina (ej. 'el pastón usa 4,8 kg de harina'). El sistema
-    ya sabe cuantas unidades rinde ese lote, calcula el factor de cambio y
-    reescala PROPORCIONALMENTE todos los demas insumos de ese componente
-    automaticamente -- usar esto cuando el usuario quiera ajustar la receta
-    estandar de producción en base a un ingrediente, no gramo por gramo."""
-    return t.estandarizar_receta_por_ingrediente(producto, variante, componente, insumo_ancla, cantidad_lote, unidad_lote)
-
-
-@tool
-def herramienta_agregar_ingrediente_receta(producto: str, variante: str, componente: str, insumo: str, cantidad_lote: float, unidad: str) -> str:
-    """Agrega un insumo nuevo a una receta (componente ej. 'Masa', 'Relleno',
-    'Almibar', 'Cobertura'). `cantidad_lote` es la cantidad para el LOTE
-    ESTANDAR completo que se mezcla en cocina (ej. "0,1 L de esencia de
-    vainilla para todo el pastón"), NO por unidad individual -- la herramienta
-    ya sabe el rendimiento del lote de ese componente y convierte sola. Si el
-    producto/variante no existia, se crea. unidad debe ser: g, mL, kg, L,
-    unidad o porcion."""
-    return t.agregar_ingrediente_receta(producto, variante, componente, insumo, cantidad_lote, unidad)
-
-
-@tool
-def herramienta_eliminar_ingrediente_receta(
-    producto: str, variante: str, insumo: str, componente: str | None = None, confirmado: bool = False,
-) -> str:
-    """Elimina un insumo de una receta. Tolera texto libre/errores de tipeo en el
-    nombre del insumo. Si aparece en mas de un componente, pasa `componente`.
-    SIEMPRE llamar primero con confirmado=False (el default) -- devuelve una
-    pregunta de confirmacion, NO borra nada todavia. Solo pasar confirmado=True
-    en una segunda llamada, despues de que el usuario responda que si."""
-    return t.eliminar_ingrediente_receta(producto, variante, insumo, componente, confirmado)
-
-
-@tool
-def herramienta_editar_ingrediente_receta(
-    producto: str, variante: str, insumo: str, nueva_cantidad_lote: float,
-    componente: str | None = None, nueva_unidad: str | None = None,
-) -> str:
-    """Cambia la cantidad (y opcionalmente la unidad) de un insumo que ya esta en
-    una receta. `nueva_cantidad_lote` es la cantidad para el LOTE ESTANDAR
-    completo (no por unidad individual) -- se convierte sola con el
-    rendimiento del lote ya conocido. Si aparece en mas de un componente, pasa
-    `componente`."""
-    return t.editar_ingrediente_receta(producto, variante, insumo, nueva_cantidad_lote, componente, nueva_unidad)
-
-
-@tool
-def herramienta_reemplazar_ingrediente_receta(
-    producto: str, variante: str, insumo_actual: str, insumo_nuevo: str,
-    cantidad_lote: float, unidad: str, componente: str | None = None,
-) -> str:
-    """Reemplaza un insumo de una receta por otro distinto, en el mismo
-    componente. `cantidad_lote` es la cantidad para el LOTE ESTANDAR completo
-    (no por unidad individual)."""
-    return t.reemplazar_ingrediente_receta(producto, variante, insumo_actual, insumo_nuevo, cantidad_lote, unidad, componente)
-
-
-@tool
-def herramienta_eliminar_producto(producto: str, variante: str, confirmado: bool = False) -> str:
-    """Elimina un producto/variante COMPLETO del catalogo (la receta entera,
-    con todos sus insumos asociados). Usar cuando el usuario pide borrar una
-    receta completa (ej. 'elimina el Cafe 9oz', 'saca esa receta del
-    catalogo'), NO para borrar solo un insumo dentro de una receta (para eso
-    usa herramienta_eliminar_ingrediente_receta).
-    SIEMPRE llamar primero con confirmado=False (el default) -- devuelve una
-    pregunta de confirmacion, NO borra nada todavia. Solo pasar
-    confirmado=True en una segunda llamada, despues de que el usuario
-    responda que si."""
-    return t.eliminar_producto(producto, variante, confirmado)
 
 
 @tool
@@ -377,9 +265,10 @@ def herramienta_listar_precios_insumos(filtro: str | None = None) -> str:
 
 @tool
 def herramienta_actualizar_precio_insumo(insumo: str, nuevo_precio: float) -> str:
-    """Actualiza el precio de una materia prima (ej. 'harina_0000', 'mantequilla').
-    Todos los productos que usan ese insumo quedan recosteados automáticamente."""
-    return t.actualizar_precio_insumo(insumo, nuevo_precio)
+    """Los precios de los insumos ya no se cambian por chat: usa esta herramienta
+    cuando te pidan cambiar uno, y transmite su respuesta sin decir que se cambió."""
+    return ("Los precios de los insumos se cambian en la planilla de recetas, pestaña Insumos. "
+            "Después hay que escribir /sincronizarrecetas. No cambié nada.")
 
 
 @tool
@@ -484,12 +373,6 @@ def herramienta_buscar_en_recetario(pregunta: str) -> str:
 
 TOOLS = [
     herramienta_receta_estandar,
-    herramienta_estandarizar_receta_por_ingrediente,
-    herramienta_agregar_ingrediente_receta,
-    herramienta_eliminar_ingrediente_receta,
-    herramienta_editar_ingrediente_receta,
-    herramienta_reemplazar_ingrediente_receta,
-    herramienta_eliminar_producto,
     herramienta_escalar_ingredientes,
     herramienta_listar_variantes,
     herramienta_listar_precios_insumos,

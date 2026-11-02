@@ -14,8 +14,6 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import tools
-
 logger = logging.getLogger(__name__)
 
 SYNC_SECRET = os.environ.get("SYNC_SECRET")
@@ -49,52 +47,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid json"})
             return
 
-        if self.path == "/sync/precio-insumo":
-            insumo = body.get("insumo")
-            nuevo_precio = body.get("nuevo_precio")
-            if not insumo or nuevo_precio is None:
-                self._send_json(400, {"error": "faltan campos insumo/nuevo_precio"})
-                return
-            try:
-                mensaje = tools.crear_o_actualizar_insumo(insumo, float(nuevo_precio), body.get("unidad", "kg"))
-            except Exception as exc:  # noqa: BLE001
-                self._send_json(500, {"error": str(exc)})
-                return
-            self._send_json(200, {"mensaje": mensaje})
-            return
-
-        if self.path == "/sync/producto":
-            producto = body.get("producto")
-            variante = body.get("variante", "")
-            lineas = body.get("lineas")
-            if not producto or not lineas:
-                self._send_json(400, {"error": "faltan campos producto/lineas"})
-                return
-            try:
-                mensaje = tools.reemplazar_receta_completa(
-                    producto, variante, lineas,
-                    categoria=body.get("categoria"),
-                    precio_venta=body.get("precio_venta"),
-                    tiempo_fabricacion_min=body.get("tiempo_fabricacion_min"),
-                )
-            except Exception as exc:  # noqa: BLE001
-                self._send_json(500, {"error": str(exc)})
-                return
-            self._send_json(200, {"mensaje": mensaje})
-            return
-
-        if self.path == "/sync/producto-eliminar":
-            producto = body.get("producto")
-            variante = body.get("variante", "")
-            if not producto:
-                self._send_json(400, {"error": "falta campo producto"})
-                return
-            try:
-                mensaje = tools.eliminar_producto(producto, variante, confirmado=True)
-            except Exception as exc:  # noqa: BLE001
-                self._send_json(500, {"error": str(exc)})
-                return
-            self._send_json(200, {"mensaje": mensaje})
+        if self.path in ("/sync/precio-insumo", "/sync/producto", "/sync/producto-eliminar"):
+            # recetas y precios ahora se mantienen en la planilla
+            self._send_json(409, {"error": "Las recetas y los precios se cambian en la planilla de recetas"})
             return
 
         self._send_json(404, {"error": "not found"})

@@ -17,41 +17,20 @@ modificarlo o no:
   deploy, para que agregar una receta nueva y hacer push sea suficiente,
   sin tener que entrar por SSH a copiarla a mano al volumen.
 - Los CSV de costeo (catalogo_precios.csv, recetas_ingredientes.csv,
-  precios_insumos.csv) SI se editan por chat (precios, ingredientes nuevos,
-  etc.) -- nunca se sobreescriben. Se fusionan de forma ADITIVA: las filas
-  nuevas que aparecen en el repo (ej. una receta nueva agregada por git) se
-  agregan al volumen, pero cualquier fila que ya exista en el volumen se
-  deja intacta, para no perder ediciones hechas en produccion por chat.
-  En recetas_ingredientes.csv la unidad de fusion es la RECETA completa
-  (producto+variante), no la fila: si el volumen ya tiene esa receta, el
-  repo no le agrega ninguna fila. Antes se fusionaba fila por fila y, cuando
-  el planificador reemplazaba una receta (ej. componentes Masa/Relleno por
-  un unico componente "Receta"), cada deploy volvia a meter las filas viejas
-  del repo y la receta quedaba duplicada (costo al doble).
-- Las claves se comparan normalizadas (minusculas, sin tildes, espacios ni
-  guiones bajos), para que "Dulce de Leche" y "DulceDeLeche" sean la misma.
+  precios_insumos.csv) se mantienen desde la planilla de recetas: el repo solo
+  los siembra si el volumen no los tiene. Antes se fusionaban con el repo en
+  cada deploy, y eso devolveria lo que se elimino en la planilla.
 """
 from __future__ import annotations
 
 import os
 import shutil
-import unicodedata
 from pathlib import Path
-
-import pandas as pd
 
 REPO_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 _data_dir_env = os.environ.get("DATA_DIR")
 DATA_DIR = Path(_data_dir_env) if _data_dir_env else REPO_DATA_DIR
-
-# nombre del CSV -> columnas que identifican una fila de forma unica, para
-# saber si una fila del repo ya existe en el volumen o es nueva.
-_CSVS_ADITIVOS = {
-    "catalogo_precios.csv": ["producto", "variante"],
-    "recetas_ingredientes.csv": ["producto", "variante"],
-    "precios_insumos.csv": ["insumo"],
-}
 
 # Archivos que nunca se editan por chat -- siempre se sincronizan enteros
 # del repo al volumen (el repo manda, sin fusion).
@@ -61,46 +40,8 @@ _ARCHIVOS_SIEMPRE_DEL_REPO = ["recetas.md"]
 # los tiene, y nunca mas los toca. La lista mayorista no se fusiona como los
 # CSV de costeo porque ahi quitar un producto por chat es normal, y la fusion
 # aditiva lo volveria a agregar desde el repo en el siguiente arranque.
-_ARCHIVOS_SOLO_SEMBRAR = ["precios_mayorista.csv"]
-
-
-def _normalizar(texto: str) -> str:
-    """Misma normalizacion que tools._normalizar (no se importa de ahi para
-    evitar una dependencia circular con tools, que importa este modulo)."""
-    texto = unicodedata.normalize("NFKD", str(texto))
-    texto = "".join(c for c in texto if not unicodedata.combining(c))
-    return texto.lower().replace(" ", "").replace("_", "")
-
-
-def _claves(df: pd.DataFrame, columnas_clave: list[str]) -> pd.Series:
-    return df[columnas_clave].fillna("").astype(str).apply(
-        lambda fila: tuple(_normalizar(v) for v in fila), axis=1
-    )
-
-
-def _fusionar_csv_aditivo(nombre: str, columnas_clave: list[str]) -> None:
-    """Agrega al CSV del volumen las filas del CSV del repo que no existan
-    todavia (por columnas_clave), sin tocar ni borrar ninguna fila que ya
-    este en el volumen."""
-    origen = REPO_DATA_DIR / nombre
-    destino = DATA_DIR / nombre
-    if not origen.exists():
-        return
-    if not destino.exists():
-        shutil.copy2(origen, destino)
-        return
-
-    df_repo = pd.read_csv(origen, sep=None, engine="python")
-    df_volumen = pd.read_csv(destino, sep=None, engine="python")
-
-    claves_existentes = set(_claves(df_volumen, columnas_clave)) if len(df_volumen) else set()
-    es_nueva = ~_claves(df_repo, columnas_clave).isin(claves_existentes)
-    filas_nuevas = df_repo[es_nueva]
-    if filas_nuevas.empty:
-        return
-
-    df_combinado = pd.concat([df_volumen, filas_nuevas], ignore_index=True)
-    df_combinado.to_csv(destino, index=False)
+_ARCHIVOS_SOLO_SEMBRAR = ["precios_mayorista.csv", "catalogo_precios.csv", "recetas_ingredientes.csv",
+                          "precios_insumos.csv"]
 
 
 def _sincronizar_data_dir() -> None:
@@ -124,9 +65,6 @@ def _sincronizar_data_dir() -> None:
         origen = REPO_DATA_DIR / nombre
         if origen.exists():
             shutil.copy2(origen, DATA_DIR / nombre)
-
-    for nombre, columnas_clave in _CSVS_ADITIVOS.items():
-        _fusionar_csv_aditivo(nombre, columnas_clave)
 
     for nombre in _ARCHIVOS_SOLO_SEMBRAR:
         origen = REPO_DATA_DIR / nombre

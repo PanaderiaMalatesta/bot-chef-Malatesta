@@ -22,7 +22,7 @@ from google.oauth2 import service_account
 from . import mayorista
 
 _ALCANCE = "https://www.googleapis.com/auth/spreadsheets.readonly"
-_URL_VALORES = "https://sheets.googleapis.com/v4/spreadsheets/{id}/values/A:Z"
+_URL_VALORES = "https://sheets.googleapis.com/v4/spreadsheets/{id}/values/{rango}"
 _COLUMNAS = {"cliente": "cliente", "rut": "rut", "razon social": "razon_social", "nombre contacto": "nombre_contacto",
              "telefono": "telefono", "correo electronico": "correo", "comuna": "comuna", "direccion": "direccion",
              "mapa": "mapa"}
@@ -50,18 +50,29 @@ class Comparacion:
 
 def descargar_filas() -> list[list[str]]:
     id_planilla = os.environ.get("CLIENTES_SHEET_ID", "")
-    credencial = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-    if not id_planilla or not credencial:
+    if not id_planilla:
         raise ErrorPlanilla("La conexión con la planilla todavía no está configurada.")
+    return leer_hoja(id_planilla, "A:Z")
+
+
+def leer_hoja(id_planilla: str, rango: str, numeros: bool = False) -> list[list]:
+    """`numeros` pide el valor real de la celda: con formato, 5704 llegaria como
+    "5.704" segun el idioma de la planilla."""
+    credencial = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if not credencial:
+        raise ErrorPlanilla("La conexión con la planilla todavía no está configurada.")
+    parametros = {"valueRenderOption": "UNFORMATTED_VALUE"} if numeros else {}
     try:
         cuenta = service_account.Credentials.from_service_account_info(json.loads(credencial), scopes=[_ALCANCE])
         cuenta.refresh(Request())
-        respuesta = requests.get(_URL_VALORES.format(id=id_planilla), timeout=30,
+        respuesta = requests.get(_URL_VALORES.format(id=id_planilla, rango=rango), timeout=30, params=parametros,
                                  headers={"Authorization": f"Bearer {cuenta.token}"})
     except (ValueError, google.auth.exceptions.GoogleAuthError, requests.RequestException) as exc:
         raise ErrorPlanilla("No pude conectarme con la planilla. No cambié nada.") from exc
     if respuesta.status_code in (403, 404):
         raise ErrorPlanilla("No tengo acceso a la planilla. Revisa que esté compartida con la cuenta del bot.")
+    if respuesta.status_code == 400:
+        raise ErrorPlanilla("Falta una pestaña en la planilla. No cambié nada.")
     if not respuesta.ok:
         raise ErrorPlanilla("Google no entregó la planilla. No cambié nada; inténtalo de nuevo más tarde.")
     return respuesta.json().get("values", [])
@@ -155,12 +166,13 @@ def comparacion_texto(c: Comparacion) -> str:
     return "\n".join(lineas)[:MAX_TEXTO_TELEGRAM - len(pie)] + pie
 
 
-def reemplazar(c: Comparacion) -> str:
+def reemplazar(c: Comparacion, con_eliminaciones: bool = True) -> str:
     """Aplica lo mostrado, con respaldo previo. Un cliente sin cambios conserva su
     fecha. Solo se elimina a quienes se nombraron: uno creado mientras se esperaba
     la confirmacion no se pierde."""
     actuales = {f["rut"]: f for f in mayorista._cargar_clientes().to_dict("records")}
-    for eliminado in c.solo_bot:
+    eliminados = c.solo_bot if con_eliminaciones else []
+    for eliminado in eliminados:
         actuales.pop(eliminado["rut"], None)
     hoy = date.today().isoformat()
     filas = []
@@ -177,5 +189,5 @@ def reemplazar(c: Comparacion) -> str:
     temporal = ruta.with_suffix(".tmp")
     pd.DataFrame(filas, columns=mayorista._COLUMNAS_CLIENTES).to_csv(temporal, index=False)
     temporal.replace(ruta)
-    return (f"Listo: {len(c.nuevos)} nuevos, {len(c.cambios)} actualizados y {len(c.solo_bot)} eliminados. "
+    return (f"Listo: {len(c.nuevos)} nuevos, {len(c.cambios)} actualizados y {len(eliminados)} eliminados. "
             "Dejé un respaldo de los datos anteriores.")
