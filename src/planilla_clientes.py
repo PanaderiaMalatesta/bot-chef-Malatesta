@@ -23,8 +23,11 @@ from . import mayorista
 
 _ALCANCE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 _URL_VALORES = "https://sheets.googleapis.com/v4/spreadsheets/{id}/values/A:Z"
-_COLUMNAS = {"cliente": "cliente", "rut": "rut", "razon social": "razon_social", "contacto": "contacto"}
-_CAMPOS = {"cliente": "nombre", "razon_social": "razón social", "contacto": "contacto"}
+_COLUMNAS = {"cliente": "cliente", "rut": "rut", "razon social": "razon_social", "nombre contacto": "nombre_contacto",
+             "telefono": "telefono", "correo electronico": "correo", "comuna": "comuna", "direccion": "direccion",
+             "mapa": "mapa"}
+_CAMPOS = {"cliente": "nombre", "razon_social": "razón social", "nombre_contacto": "nombre de contacto",
+           "telefono": "teléfono", "correo": "correo", "comuna": "comuna", "direccion": "dirección", "mapa": "mapa"}
 MAX_TEXTO_TELEGRAM = 3800
 
 
@@ -95,10 +98,23 @@ def interpretar_filas(filas: list[list[str]]) -> tuple[list[dict], list[str]]:
         if not datos["cliente"]:
             raise ErrorPlanilla(f"Fila {n}: falta el nombre del cliente. No cambié nada.")
         ruts.add(rut)
-        clientes.append({**datos, "rut": rut})
+        # una formula de la planilla entrega el texto "Ver mapa": el link lo arma el bot
+        mapa = datos["mapa"] if datos["mapa"].lower().startswith("http") else ""
+        contacto = ", ".join(p for p in (datos["nombre_contacto"], datos["telefono"], datos["correo"]) if p)
+        clientes.append({**datos, "rut": rut, "mapa": mapa, "contacto": contacto})
     if not clientes:
         raise ErrorPlanilla("La planilla no tiene clientes con RUT. No cambié nada.")
     return clientes, sin_rut
+
+
+def _diferencias(actual: dict, nuevo: dict) -> list[tuple[str, str, str]]:
+    """(campo, valor en el bot, valor en la planilla). "contacto" se deriva de sus
+    partes, asi que solo se muestra si una cotizacion lo dejo distinto."""
+    distintos = [(nombre, actual[campo], nuevo[campo]) for campo, nombre in _CAMPOS.items()
+                 if _limpiar(actual[campo]) != nuevo[campo]]
+    if not distintos and _limpiar(actual["contacto"]) != nuevo["contacto"]:
+        return [("contacto", actual["contacto"], nuevo["contacto"])]
+    return distintos
 
 
 def comparar(filas: list[list[str]]) -> Comparacion:
@@ -109,7 +125,7 @@ def comparar(filas: list[list[str]]) -> Comparacion:
         actual = actuales.get(cliente["rut"])
         if actual is None:
             resultado.nuevos.append(cliente)
-        elif any(_limpiar(actual[c]) != cliente[c] for c in _CAMPOS):
+        elif _diferencias(actual, cliente):
             resultado.cambios.append((actual, cliente))
     ruts = {c["rut"] for c in clientes}
     resultado.solo_bot = [c for rut, c in actuales.items() if rut not in ruts]
@@ -124,8 +140,8 @@ def comparacion_texto(c: Comparacion) -> str:
         lineas += ["", "Cambios (bot → planilla):"]
         for actual, nuevo in c.cambios:
             lineas.append(f"- RUT {nuevo['rut']}")
-            lineas += [f"  {nombre}: {actual[campo] or 'vacío'} → {nuevo[campo] or 'vacío'}"
-                       for campo, nombre in _CAMPOS.items() if _limpiar(actual[campo]) != nuevo[campo]]
+            lineas += [f"  {nombre}: {antes or 'vacío'} → {despues or 'vacío'}"
+                       for nombre, antes, despues in _diferencias(actual, nuevo)]
     if c.solo_bot:
         lineas += ["", "Solo en el bot (se mantienen):"] + [f"- {s['cliente']} (RUT {s['rut']})" for s in c.solo_bot]
     if c.sin_rut:
@@ -145,7 +161,7 @@ def reemplazar(c: Comparacion) -> str:
     filas = []
     for cliente in c.filas:
         actual = actuales.pop(cliente["rut"], None)
-        igual = actual is not None and all(_limpiar(actual[campo]) == cliente[campo] for campo in _CAMPOS)
+        igual = actual is not None and not _diferencias(actual, cliente)
         filas.append(actual if igual else {**cliente, "actualizado": hoy})
     filas.extend(actuales.values())
 

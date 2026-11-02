@@ -23,6 +23,7 @@ import re
 import unicodedata
 from datetime import date, timedelta
 from difflib import SequenceMatcher
+from urllib.parse import quote_plus
 from pathlib import Path
 
 import pandas as pd
@@ -403,7 +404,9 @@ def iniciar() -> dict:
 # --- Clientes (memoria por RUT) -------------------------------------------------
 
 CLIENTES_PATH = DATA_DIR / "clientes_mayoristas.csv"
-_COLUMNAS_CLIENTES = ["rut", "cliente", "razon_social", "contacto", "actualizado"]
+# "contacto" es el texto que va en la cotizacion; los demas vienen de la planilla.
+_COLUMNAS_CLIENTES = ["rut", "cliente", "razon_social", "contacto", "nombre_contacto", "telefono", "correo", "comuna",
+                      "direccion", "mapa", "actualizado"]
 _PATRON_MANTENER = re.compile(r"^\s*(igual|mantener|mant[eé]n\w*|ok|s[ií]|el mismo|la misma)\s*[.!]*\s*$",
                               re.IGNORECASE)
 _PATRON_PARECE_RUT = re.compile(r"[\d.\s-]*\d[\d.\s-]*[kK]?")
@@ -433,7 +436,7 @@ def normalizar_rut(texto: str) -> tuple[str | None, str | None]:
 def _cargar_clientes() -> pd.DataFrame:
     if not CLIENTES_PATH.exists():
         return pd.DataFrame(columns=_COLUMNAS_CLIENTES)
-    return pd.read_csv(CLIENTES_PATH, dtype=str).fillna("")
+    return pd.read_csv(CLIENTES_PATH, dtype=str).reindex(columns=_COLUMNAS_CLIENTES).fillna("")
 
 
 def buscar_cliente(rut: str) -> dict | None:
@@ -488,8 +491,12 @@ def guardar_cliente(estado: dict) -> None:
     if not estado.get("rut"):
         return
     df = _cargar_clientes()
+    anterior = df[df["rut"] == estado["rut"]]
+    # la cotizacion no pregunta direccion ni contacto por separado: se conservan
+    datos_previos = anterior.iloc[0].to_dict() if len(anterior) else {}
     df = df[df["rut"] != estado["rut"]]
-    nuevo = {"rut": estado["rut"], "cliente": estado["cliente"], "razon_social": estado.get("razon_social", ""),
+    nuevo = {**datos_previos, "rut": estado["rut"], "cliente": estado["cliente"],
+             "razon_social": estado.get("razon_social", ""),
              "contacto": estado.get("contacto", ""), "actualizado": date.today().isoformat()}
     df = pd.concat([df, pd.DataFrame([nuevo])], ignore_index=True)
     CLIENTES_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -1022,8 +1029,7 @@ def listar_clientes() -> list[dict]:
     for cotizacion in listar_cotizaciones():
         if _normalizar(cotizacion["cliente"]) not in nombres:
             nombres.add(_normalizar(cotizacion["cliente"]))
-            clientes.append({"rut": "", "cliente": cotizacion["cliente"], "razon_social": "", "contacto": "",
-                             "actualizado": ""})
+            clientes.append({**dict.fromkeys(_COLUMNAS_CLIENTES, ""), "cliente": cotizacion["cliente"]})
     return sorted(clientes, key=lambda c: _normalizar(c["cliente"]))
 
 
@@ -1043,13 +1049,32 @@ def clientes_texto(clientes: list[dict]) -> str:
     return "\n".join(lineas)
 
 
+def link_mapa(cliente: dict) -> str:
+    """El link guardado o, si no hay, una busqueda de Google Maps por la direccion."""
+    if cliente["mapa"]:
+        return cliente["mapa"]
+    if not cliente["direccion"]:
+        return ""
+    lugar = ", ".join(p for p in (cliente["direccion"], cliente["comuna"], "Chile") if p)
+    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(lugar)}"
+
+
 def ficha_cliente(cliente: dict, limite: int = 10) -> tuple[str, bool]:
     """Texto de la ficha y si tiene cotizaciones que se puedan reenviar."""
     lineas = [cliente["cliente"]]
     if cliente["rut"]:
         lineas.append(f"RUT: {cliente['rut']}")
         lineas.append(f"Razón social: {cliente['razon_social'] or 'sin dato'}")
-        lineas.append(f"Contacto: {cliente['contacto'] or 'sin dato'}")
+        if cliente["nombre_contacto"] or cliente["telefono"] or cliente["correo"]:
+            lineas.append(f"Contacto: {cliente['nombre_contacto'] or 'sin dato'}")
+            lineas.append(f"Teléfono: {cliente['telefono'] or 'sin dato'}")
+            lineas.append(f"Correo: {cliente['correo'] or 'sin dato'}")
+        else:
+            lineas.append(f"Contacto: {cliente['contacto'] or 'sin dato'}")
+        lineas.append(f"Comuna: {cliente['comuna'] or 'sin dato'}")
+        lineas.append(f"Dirección: {cliente['direccion'] or 'sin dato'}")
+        if link_mapa(cliente):
+            lineas.append(f"Mapa: {link_mapa(cliente)}")
         lineas.append(f"Actualizado: {date.fromisoformat(cliente['actualizado']).strftime('%d-%m-%Y')}")
     else:
         lineas.append("Sin ficha: se cotizó sin RUT, así que no tengo sus datos guardados.")
