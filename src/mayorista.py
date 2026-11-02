@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date, timedelta
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import pandas as pd
@@ -371,13 +372,14 @@ def _historia_lista(df: pd.DataFrame, padding: float, ancho_logo: float) -> list
 # El estado es un dict por chat (lo guarda telegram_bot.py). "preguntando" es
 # la clave del paso actual; los pasos opcionales aceptan "omitir".
 
-# La cotizacion parte por el RUT: si el cliente ya esta guardado
+# La cotizacion parte por el RUT o el nombre: con un nombre se listan los
+# clientes parecidos ("elegir_cliente"). Si el cliente ya esta guardado
 # (clientes_mayoristas.csv) se ofrecen sus datos ("confirmar_cliente") y se
 # salta a productos; si es nuevo se piden y se guardan al generar el PDF.
 PASOS = ["rut", "cliente", "razon_social", "contacto", "productos", "descuento", "observaciones", "confirmacion"]
 
 PREGUNTAS = {
-    "rut": "¿RUT del cliente? (ej. 76.123.456-7; responde \"omitir\" si no tiene)",
+    "rut": "¿RUT o nombre del cliente? (ej. 76.123.456-7 o \"restaurante ursys\"; responde \"omitir\" si no tiene RUT)",
     "cliente": "¿Nombre de la cafetería o empresa?",
     "razon_social": "¿Razón social? (o \"omitir\")",
     "contacto": "¿Nombre y teléfono o correo del contacto? (o \"omitir\")",
@@ -404,6 +406,11 @@ CLIENTES_PATH = DATA_DIR / "clientes_mayoristas.csv"
 _COLUMNAS_CLIENTES = ["rut", "cliente", "razon_social", "contacto", "actualizado"]
 _PATRON_MANTENER = re.compile(r"^\s*(igual|mantener|mant[eé]n\w*|ok|s[ií]|el mismo|la misma)\s*[.!]*\s*$",
                               re.IGNORECASE)
+_PATRON_PARECE_RUT = re.compile(r"[\d.\s-]*\d[\d.\s-]*[kK]?")
+_PATRON_CLIENTE_NUEVO = re.compile(r"^\s*(nuevo|ninguno|otro|no)\s*[.!]*\s*$", re.IGNORECASE)
+_PALABRAS_GENERICAS_CLIENTE = {"cafeteria", "cafe", "restaurante", "restaurant", "resto", "minimarket", "market",
+                               "negocio", "empresa", "local", "tienda", "panaderia", "pasteleria", "hotel",
+                               "sociedad", "comercializadora", "spa", "ltda", "eirl"}
 
 
 def normalizar_rut(texto: str) -> tuple[str | None, str | None]:
@@ -435,6 +442,47 @@ def buscar_cliente(rut: str) -> dict | None:
     return fila.iloc[0].to_dict() if len(fila) else None
 
 
+def _palabras_nombre(texto: str) -> list[str]:
+    return [p for p in re.findall(r"[a-z0-9]+", _normalizar(texto)) if p not in _PALABRAS_VACIAS]
+
+
+def _misma_palabra(buscada: str, palabra: str) -> bool:
+    """Tolera nombres incompletos y errores de tipeo ("ursy" -> "ursys")."""
+    if buscada == palabra:
+        return True
+    if len(buscada) >= 3 and len(palabra) >= 3 and (palabra.startswith(buscada) or buscada.startswith(palabra)):
+        return True
+    return len(buscada) >= 4 and SequenceMatcher(None, buscada, palabra).ratio() >= 0.8
+
+
+def buscar_clientes_por_nombre(texto: str) -> list[dict]:
+    """Clientes parecidos a `texto`, los mas parecidos primero. Una palabra
+    generica ("restaurante") solo basta si no se busco nada mas especifico; asi
+    "cafeteria del brujo" no ofrece todas las cafeterias."""
+    buscadas = _palabras_nombre(texto)
+    especificas = [p for p in buscadas if p not in _PALABRAS_GENERICAS_CLIENTE] or buscadas
+    encontrados = []
+    for fila in _cargar_clientes().to_dict("records"):
+        palabras = _palabras_nombre(f"{fila['cliente']} {fila['razon_social']}")
+        if not any(_misma_palabra(b, p) for b in especificas for p in palabras):
+            continue
+        puntaje = sum(any(_misma_palabra(b, p) for p in palabras) for b in buscadas)
+        encontrados.append((puntaje, fila))
+    encontrados.sort(key=lambda par: par[0], reverse=True)
+    return [fila for _, fila in encontrados]
+
+
+def _buscar_por_nombre(estado: dict, texto: str) -> str | None:
+    encontrados = buscar_clientes_por_nombre(texto)
+    if not encontrados:
+        estado["preguntando"] = "rut"
+        return (f"No encontré clientes parecidos a \"{texto}\". Prueba con otro nombre o, si es un cliente nuevo, "
+                "escribe su RUT (\"omitir\" si no tiene).")
+    estado["opciones_cliente"] = encontrados
+    estado["preguntando"] = "elegir_cliente"
+    return None
+
+
 def guardar_cliente(estado: dict) -> None:
     """Crea o actualiza el cliente por su RUT (sin RUT no se guarda)."""
     if not estado.get("rut"):
@@ -459,6 +507,11 @@ def _datos_cliente_texto(estado: dict) -> str:
 
 def siguiente_pregunta(estado: dict) -> str:
     paso = estado["preguntando"]
+    if paso == "elegir_cliente":
+        opciones = "\n".join(f"{i}. {c['cliente']} ({c['razon_social'] or 'sin razón social'}, RUT {c['rut']})"
+                             for i, c in enumerate(estado["opciones_cliente"], start=1))
+        return (f"Encontré estos clientes:\n{opciones}\n\n"
+                "Responde el número. También puedes escribir otro nombre, o \"nuevo\" si no es ninguno.")
     if paso == "confirmar_cliente":
         return ("Encontré este cliente:\n" + _datos_cliente_texto(estado)
                 + "\n\n¿Uso estos datos? Responde \"sí\" o \"actualizar\".")
@@ -650,6 +703,8 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
     if paso == "rut":
         if omitido:
             estado["rut"] = ""
+        elif not _PATRON_PARECE_RUT.fullmatch(texto):
+            return _buscar_por_nombre(estado, texto)
         else:
             rut, error = normalizar_rut(texto)
             if error:
@@ -661,6 +716,22 @@ def aplicar_respuesta(estado: dict, texto: str) -> str | None:
                     estado[campo] = guardado.get(campo, "")
                 estado["preguntando"] = "confirmar_cliente"
                 return None
+    elif paso == "elegir_cliente":
+        opciones = estado["opciones_cliente"]
+        if re.fullmatch(r"\d{1,3}", texto):
+            if not 1 <= int(texto) <= len(opciones):
+                return f"Responde un número del 1 al {len(opciones)}, otro nombre, o \"nuevo\" si no es ninguno."
+            elegido = opciones[int(texto) - 1]
+            for campo in ("rut", "cliente", "razon_social", "contacto"):
+                estado[campo] = elegido.get(campo, "")
+            del estado["opciones_cliente"]
+            estado["preguntando"] = "confirmar_cliente"
+            return None
+        del estado["opciones_cliente"]
+        estado["preguntando"] = "rut"
+        if _PATRON_CLIENTE_NUEVO.match(texto):
+            return None
+        return aplicar_respuesta(estado, texto)
     elif paso == "confirmar_cliente":
         if re.match(r"^\s*(actualiz|cambi|modific|corrig|no\b)", texto, re.IGNORECASE):
             estado["actualizando"] = True
