@@ -5,6 +5,7 @@ puerto: el servidor solo hace conexiones salientes hacia la API de Telegram.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -23,7 +24,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import acceso, mayorista, recipe_import, recipe_pipeline, sync_server
+from . import acceso, mayorista, planilla_clientes, recipe_import, recipe_pipeline, sync_server
 from .agent import build_agent
 
 load_dotenv()
@@ -388,6 +389,44 @@ async def clientes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _consultar_clientes(update, update.effective_chat.id, " ".join(context.args or []))
 
 
+# Sincronizar clientes: descarga la planilla, muestra las diferencias y solo
+# reemplaza los datos del bot si se confirma.
+_chat_sincronizacion: dict[int, planilla_clientes.Comparacion] = {}
+
+_PATRON_SINCRONIZAR = re.compile(r"\b(sincroniz|actualiz)\w*\b.*\b(clientes|planilla)\b", re.IGNORECASE)
+
+
+async def _iniciar_sincronizacion(update: Update, chat_id: int) -> None:
+    _chat_clientes.pop(chat_id, None)
+    _chat_ver_cotizaciones.discard(chat_id)
+    await update.message.reply_text("Descargando la planilla...")
+    try:
+        filas = await asyncio.to_thread(planilla_clientes.descargar_filas)
+        comparacion = planilla_clientes.comparar(filas)
+    except planilla_clientes.ErrorPlanilla as exc:
+        await update.message.reply_text(str(exc))
+        return
+    if comparacion.hay_cambios:
+        _chat_sincronizacion[chat_id] = comparacion
+    await update.message.reply_text(planilla_clientes.comparacion_texto(comparacion))
+
+
+async def _continuar_sincronizacion(update: Update, chat_id: int, texto: str) -> None:
+    if _PATRON_CANCELAR_FLUJO.match(texto) or re.fullmatch(r"\s*no\s*[.!]*\s*", texto, re.IGNORECASE):
+        del _chat_sincronizacion[chat_id]
+        await update.message.reply_text("Ok, no cambié nada.")
+        return
+    if not mayorista.es_si(texto):
+        await update.message.reply_text('Responde "sí" para reemplazar o "cancelar".')
+        return
+    comparacion = _chat_sincronizacion.pop(chat_id)
+    await update.message.reply_text(planilla_clientes.reemplazar(comparacion))
+
+
+async def sincronizar_clientes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _iniciar_sincronizacion(update, update.effective_chat.id)
+
+
 async def recibir_foto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     archivo = await update.message.photo[-1].get_file()
@@ -419,6 +458,7 @@ def _olvidar_chat(chat_id: int) -> None:
     for estado in (_chat_messages, _chat_ultima_lista, _chat_importacion, _chat_cotizacion, _chat_gestion_mayorista):
         estado.pop(chat_id, None)
     _chat_clientes.pop(chat_id, None)
+    _chat_sincronizacion.pop(chat_id, None)
     _chat_ver_cotizaciones.discard(chat_id)
 
 
@@ -456,7 +496,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Agente interno Malatesta. Pregúntame por recetas, costos de "
         "fabricación para un pedido, o el costo de producción del día. "
-        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /listamayorista, "
+        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /sincronizarclientes, /listamayorista, "
         "/agregarmayorista o /quitarmayorista."
     )
 
@@ -467,6 +507,14 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if chat_id in _chat_cotizacion:
         await _continuar_cotizacion(update, chat_id, texto)
+        return
+
+    if chat_id in _chat_sincronizacion:
+        await _continuar_sincronizacion(update, chat_id, texto)
+        return
+
+    if _PATRON_SINCRONIZAR.search(texto):
+        await _iniciar_sincronizacion(update, chat_id)
         return
 
     if chat_id in _chat_clientes and await _continuar_clientes(update, chat_id, texto):
@@ -559,6 +607,7 @@ def main() -> None:
     app.add_handler(CommandHandler("quitarmayorista", quitar_mayorista))
     app.add_handler(CommandHandler("cotizaciones", cotizaciones))
     app.add_handler(CommandHandler("clientes", clientes))
+    app.add_handler(CommandHandler("sincronizarclientes", sincronizar_clientes))
     app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
     app.run_polling()
