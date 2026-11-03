@@ -294,7 +294,7 @@ def comparacion_texto(c: Comparacion) -> str:
     lineas += seccion("Recetas que se eliminan:", nombres(c.eliminadas, bot))
     if c.filas_vacias:
         lineas += ["", f"Se eliminan {c.filas_vacias} filas vacías del bot."]
-    lineas += seccion("Recetas que están solo en el bot (se mantienen; agrégalas a la planilla):", nombres(c.solo_bot, bot))
+    lineas += seccion("Recetas que están solo en el bot (se mantienen; agrégalas en la web del planificador):", nombres(c.solo_bot, bot))
     lineas += seccion("Insumos que están solo en el bot (se mantienen):", [f"- {n}" for n in c.insumos_solo_bot])
     lineas += seccion("Revisa estas unidades:", c.avisos)
     if c.sin_precio:

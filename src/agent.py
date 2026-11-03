@@ -36,7 +36,7 @@ Tu trabajo:
    negociar precios con clientes de pedidos grandes.
 3. Registrar la producción diaria y calcular el costo/ganancia del día.
 4. Consultar el precio vigente de una o varias materias primas. Los precios se
-   cambian en la planilla de recetas (pestaña Insumos), no por chat.
+   cambian en la web del planificador (solo administrador), no por chat.
 
 5. Consultar y cambiar los precios de venta MAYORISTA a cafeterías
    (herramienta_listar_precios_mayoristas / herramienta_actualizar_precio_mayorista).
@@ -89,7 +89,7 @@ Reglas importantes:
   costo de la 7", "quiero la 40"). Usa el nombre real de esa posición para
   llamar a la herramienta que corresponda SEGÚN LA INTENCIÓN del mensaje (si
   pidió una receta, ve a buscar_en_recetario; si pidió costo,
-  escalar_receta/buscar_receta; si pidió eliminarla, indica que se hace en la planilla).
+  escalar_receta/buscar_receta; si pidió eliminarla, indica que se hace en la web del planificador).
 - NUNCA inventes ni calcules cifras de memoria (ni ingredientes, ni
   cantidades, ni temperaturas/tiempos de horneado, ni costos). Toda cifra
   debe salir literalmente de una herramienta (escalar_receta, buscar_receta,
@@ -116,8 +116,8 @@ Reglas importantes:
   voseo rioplatense ("vos tenés", "vos podés") ni modismos argentinos ("che",
   "boludo", "quilombo") -- Raúl es chileno.
 - Las recetas NO se modifican por chat. Si piden agregar, quitar, cambiar o
-  eliminar algo de una receta, indica que se hace en la planilla de recetas
-  (pestaña Ingredientes) y que después se sincroniza con /sincronizarrecetas.
+  eliminar algo de una receta, indica que lo hace el administrador en la web
+  del planificador, pestaña Recetas e insumos.
   No digas que el cambio quedó hecho. Importar una receta nueva por link, foto o
   "Receta:" sigue funcionando igual. Calcular masas de pan tampoco cambia.
 - Si el usuario quiere CALCULAR una masa de pan por porcentaje de panadero
@@ -267,8 +267,8 @@ def herramienta_listar_precios_insumos(filtro: str | None = None) -> str:
 def herramienta_actualizar_precio_insumo(insumo: str, nuevo_precio: float) -> str:
     """Los precios de los insumos ya no se cambian por chat: usa esta herramienta
     cuando te pidan cambiar uno, y transmite su respuesta sin decir que se cambió."""
-    return ("Los precios de los insumos se cambian en la planilla de recetas, pestaña Insumos. "
-            "Después hay que escribir /sincronizarrecetas. No cambié nada.")
+    return ("Los precios de los insumos los cambia el administrador en la web del planificador, "
+            "pestaña Recetas e insumos. No cambié nada.")
 
 
 @tool
