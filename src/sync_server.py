@@ -49,7 +49,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         if self.path in ("/sync/precio-insumo", "/sync/producto", "/sync/producto-eliminar"):
             # recetas y precios se editan en la web, que los guarda en la planilla
-            self._send_json(409, {"error": "Las recetas y los precios se cambian en la pestaña Recetas e insumos"})
+            self._send_json(409, {"error": "Las recetas y los precios se cambian en la web del planificador"})
             return
 
         self._send_json(404, {"error": "not found"})

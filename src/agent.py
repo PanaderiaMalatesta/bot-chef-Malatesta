@@ -117,7 +117,7 @@ Reglas importantes:
   "boludo", "quilombo") -- Raúl es chileno.
 - Las recetas NO se modifican por chat. Si piden agregar, quitar, cambiar o
   eliminar algo de una receta, indica que lo hace el administrador en la web
-  del planificador, pestaña Recetas e insumos.
+  del planificador, pestaña Recetas.
   No digas que el cambio quedó hecho. Importar una receta nueva por link, foto o
   "Receta:" sigue funcionando igual. Calcular masas de pan tampoco cambia.
 - Si el usuario quiere CALCULAR una masa de pan por porcentaje de panadero
@@ -268,7 +268,7 @@ def herramienta_actualizar_precio_insumo(insumo: str, nuevo_precio: float) -> st
     """Los precios de los insumos ya no se cambian por chat: usa esta herramienta
     cuando te pidan cambiar uno, y transmite su respuesta sin decir que se cambió."""
     return ("Los precios de los insumos los cambia el administrador en la web del planificador, "
-            "pestaña Recetas e insumos. No cambié nada.")
+            "pestaña Insumos. No cambié nada.")
 
 
 @tool
