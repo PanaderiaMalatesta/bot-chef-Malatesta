@@ -734,6 +734,9 @@ def _mensaje_no_encontrado(catalogo: pd.DataFrame, producto: str, variante: str)
 
 
 def _formatear_cantidad(total: float, unidad: str) -> str:
+    # kg y L son para el costo: en una receta, 7,8 g no pueden salir como 0.01 kg
+    if unidad in ("kg", "L"):
+        total, unidad = total * 1000, {"kg": "g", "L": "mL"}[unidad]
     if unidad == "g" and total >= 1000:
         return f"{total / 1000:.2f} kg"
     if unidad == "mL" and total >= 1000:
