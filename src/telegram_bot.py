@@ -9,16 +9,19 @@ import asyncio
 import logging
 import os
 import re
+from datetime import datetime
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-from telegram import Update
+from telegram import BotCommand, ReplyKeyboardRemove, Update
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     ApplicationHandlerStop,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    ExtBot,
     MessageHandler,
     TypeHandler,
     filters,
@@ -29,12 +32,14 @@ from . import (
     drive_clientes,
     facturas,
     mayorista,
+    menu,
     planilla_clientes,
     planilla_recetas,
     recipe_import,
     recipe_pipeline,
     sync_automatica,
     sync_server,
+    tools,
 )
 from .agent import build_agent
 
@@ -462,8 +467,17 @@ async def avisos(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Listo: los avisos de la sincronización automática llegarán a este chat.")
 
 
-async def _iniciar_sync_automatica(app: Application) -> None:
+async def _al_iniciar(app: Application) -> None:
     app.create_task(sync_automatica.bucle(app))
+    try:
+        await app.bot.set_my_commands([
+            BotCommand("menu", "Abrir el menú"),
+            BotCommand("cotizacion", "Hacer una cotización"),
+            BotCommand("clientes", "Consultar clientes"),
+            BotCommand("salir", "Cerrar sesión"),
+        ])
+    except TelegramError:
+        logging.warning("No se pudieron registrar los comandos del bot")
 
 
 async def sincronizar_recetas(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -649,16 +663,36 @@ _RESPUESTAS_ACCESO = {
 _PATRON_SALIR = re.compile(r"\s*/?salir\s*[.!]?\s*", re.IGNORECASE)
 
 
+def _flujo_en_curso(chat_id: int) -> str | None:
+    """Lo que se perderia si otra accion lo interrumpe."""
+    for estado, nombre in ((_chat_cotizacion, "una cotización"), (_chat_factura, "una factura"),
+                           (_chat_asociar, "asociar una factura"), (_chat_sync_recetas, "una sincronización de recetas"),
+                           (_chat_sincronizacion, "una sincronización de clientes"),
+                           (_chat_gestion_mayorista, "un cambio en la lista mayorista"),
+                           (_chat_importacion, "importar una receta")):
+        if chat_id in estado:
+            return nombre
+    return None
+
+
+def _limpiar_consultas(chat_id: int) -> None:
+    _chat_clientes.pop(chat_id, None)
+    _chat_ver_cotizaciones.discard(chat_id)
+    _chat_calculo.pop(chat_id, None)
+
+
+def _cancelar_flujos(chat_id: int) -> None:
+    for estado in (_chat_importacion, _chat_cotizacion, _chat_gestion_mayorista, _chat_sincronizacion, _chat_sync_recetas,
+                   _chat_factura, _chat_asociar, _chat_ultima_pregunta):
+        estado.pop(chat_id, None)
+    _limpiar_consultas(chat_id)
+
+
 def _olvidar_chat(chat_id: int) -> None:
     """Al cerrar sesion no debe quedar la conversacion ni un flujo a medias."""
-    for estado in (_chat_messages, _chat_ultima_lista, _chat_importacion, _chat_cotizacion, _chat_gestion_mayorista):
+    for estado in (_chat_messages, _chat_ultima_lista):
         estado.pop(chat_id, None)
-    _chat_clientes.pop(chat_id, None)
-    _chat_sincronizacion.pop(chat_id, None)
-    _chat_sync_recetas.pop(chat_id, None)
-    _chat_factura.pop(chat_id, None)
-    _chat_asociar.pop(chat_id, None)
-    _chat_ver_cotizaciones.discard(chat_id)
+    _cancelar_flujos(chat_id)
 
 
 async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -668,16 +702,22 @@ async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     mensaje = update.effective_message
     if usuario is None or mensaje is None:
         raise ApplicationHandlerStop
+    if update.callback_query:
+        # el texto de un boton es del bot: nunca cuenta como intento de clave
+        if acceso.esta_autorizado(usuario.id):
+            return
+        await update.callback_query.answer("Tu sesión terminó. Escribe tu clave para continuar.", show_alert=True)
+        raise ApplicationHandlerStop
     if acceso.esta_autorizado(usuario.id):
         if mensaje.text and _PATRON_SALIR.fullmatch(mensaje.text):
             acceso.cerrar_sesion(usuario.id)
             _olvidar_chat(mensaje.chat.id)
-            await mensaje.reply_text("Sesión cerrada.")
+            await mensaje.reply_text("Sesión cerrada.", reply_markup=ReplyKeyboardRemove())
             raise ApplicationHandlerStop
         return
 
-    # un comando o una foto nunca cuentan como intento de clave
-    es_comando = bool(mensaje.text) and mensaje.text.startswith("/")
+    # un comando, el boton de menu o una foto nunca cuentan como intento de clave
+    es_comando = bool(mensaje.text) and (mensaje.text.startswith("/") or bool(menu.PATRON_MENU.fullmatch(mensaje.text)))
     resultado = acceso.intentar_clave(usuario.id, None if es_comando else mensaje.text)
     if resultado == "correcta":
         # para que la clave no quede a la vista en el chat
@@ -685,24 +725,244 @@ async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await mensaje.delete()
         except TelegramError:
             logging.warning("No se pudo borrar el mensaje con la clave")
-        await mensaje.chat.send_message("Clave correcta. Tu sesión dura 24 horas; escribe tu consulta.")
+        await mensaje.chat.send_message("Clave correcta. Tu sesión dura 24 horas; escribe tu consulta o usa el menú.")
+        await mensaje.chat.send_message(_TEXTO_MENU, reply_markup=menu.principal())
     else:
-        await mensaje.reply_text(_RESPUESTAS_ACCESO[resultado])
+        await mensaje.reply_text(_RESPUESTAS_ACCESO[resultado], reply_markup=ReplyKeyboardRemove())
     raise ApplicationHandlerStop
+
+
+# --- Botones ------------------------------------------------------------------
+#
+# Un boton de respuesta manda el mismo texto que se podria escribir, por el mismo
+# camino. Solo vale para la ultima pregunta: un boton viejo no puede responder otra.
+_TEXTO_MENU = "¿Qué necesitas?"
+_TEXTO_ADMINISTRACION = "Administración"
+_TEXTO_RECETAS = "Elige un producto:"
+_TEXTO_PRODUCCION = ('Para registrar lo producido, escríbelo así: "hoy hicimos 100 facturas de membrillo".\n\n'
+                     "También puedes ver el costo de lo que llevas hoy.")
+_chat_ultima_pregunta: dict[int, int] = {}
+_chat_calculo: dict[int, dict] = {}
+_PATRON_CANTIDAD = re.compile(r"\d+(?:[.,]\d+)?")
+MAX_CANTIDAD = 100000
+
+
+def _hay_flujo(chat_id: int) -> bool:
+    return bool(_flujo_en_curso(chat_id)) or chat_id in _chat_clientes or chat_id in _chat_ver_cotizaciones or chat_id in _chat_calculo
+
+
+class _BotConBotones(ExtBot):
+    """Agrega los botones a todos los mensajes, para no repetirlo en cada flujo."""
+
+    async def send_message(self, chat_id, text, *args, **opciones):
+        if opciones.get("reply_markup") is None:
+            botones = menu.botones_de_respuesta(text) if _hay_flujo(chat_id) else None
+            opciones["reply_markup"] = botones or menu.TECLADO_PERSISTENTE
+        enviado = await super().send_message(chat_id, text, *args, **opciones)
+        if menu.es_pregunta(opciones["reply_markup"]):
+            _chat_ultima_pregunta[chat_id] = enviado.message_id
+        return enviado
+
+
+class _MensajeDeBoton:
+    def __init__(self, bot, chat_id: int, texto: str) -> None:
+        self._bot, self._chat_id, self.text = bot, chat_id, texto
+
+    async def reply_text(self, texto: str, **opciones):
+        return await self._bot.send_message(self._chat_id, texto, **opciones)
+
+    async def reply_document(self, **opciones):
+        return await self._bot.send_document(self._chat_id, **opciones)
+
+
+class _UpdateDeBoton:
+    """Deja que un boton use las mismas funciones que un mensaje escrito."""
+
+    def __init__(self, update: Update, bot, texto: str = "") -> None:
+        self.effective_chat = update.effective_chat
+        self.effective_user = update.effective_user
+        self.message = _MensajeDeBoton(bot, update.effective_chat.id, texto)
+
+
+async def _quitar_botones(query) -> None:
+    try:
+        await query.edit_message_reply_markup(None)
+    except TelegramError:
+        logging.info("No se pudieron quitar los botones de un mensaje")
+
+
+async def _editar(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botones) -> None:
+    try:
+        await update.callback_query.edit_message_text(texto[:MAX_TEXTO_BOTON], reply_markup=botones)
+    except TelegramError:
+        # un mensaje muy antiguo ya no se puede editar
+        await context.bot.send_message(update.effective_chat.id, texto[:MAX_TEXTO_BOTON], reply_markup=botones)
+
+
+MAX_TEXTO_BOTON = 4000
+
+
+def _receta_de(i: int, j: int) -> tuple[str, str]:
+    producto = menu.productos()[i]
+    return producto, menu.variantes(producto)[j]
+
+
+async def _navegar_recetas(update: Update, context: ContextTypes.DEFAULT_TYPE, tipo: str, partes: list[int]) -> None:
+    chat_id = update.effective_chat.id
+    if tipo == "rp":
+        producto = menu.productos()[partes[0]]
+        variantes = menu.variantes(producto)
+        if len(variantes) > 1:
+            await _editar(update, context, f"{tools._legible(producto)}: elige una opción:", menu.teclado_variantes(partes[0], producto))
+            return
+        partes = [partes[0], 0]
+        tipo = "rv"
+    producto, variante = _receta_de(*partes)
+    nombre = f"{tools._legible(producto)} {tools._legible(variante)}".strip()
+    if tipo == "rv":
+        hay_mas = len(menu.variantes(producto)) > 1
+        await _editar(update, context, tools.receta_estandar(producto, variante), menu.teclado_receta(*partes, hay_mas))
+        return
+    en_curso = _flujo_en_curso(chat_id)
+    if en_curso:
+        await context.bot.send_message(chat_id, f"Tienes {en_curso} sin terminar. Termínala o cancélala primero.",
+                                       reply_markup=menu.cancelar_en_curso())
+        return
+    _limpiar_consultas(chat_id)
+    if tipo == "rc":
+        _chat_calculo[chat_id] = {"producto": producto, "variante": variante, "nombre": nombre}
+        await context.bot.send_message(chat_id, f"¿Cuántas unidades de {nombre}? Elige o escribe el número.",
+                                       reply_markup=menu.teclado_cantidades())
+        return
+    await responder(_UpdateDeBoton(update, context.bot, f"¿Cómo se prepara {nombre}? Muéstrame el procedimiento."), context)
+
+
+async def _continuar_calculo(update: Update, chat_id: int, texto: str) -> None:
+    estado = _chat_calculo[chat_id]
+    if _PATRON_CANCELAR_FLUJO.match(texto):
+        del _chat_calculo[chat_id]
+        await update.message.reply_text("Ok.")
+        return
+    numero = _PATRON_CANTIDAD.search(texto)
+    cantidad = float(numero.group(0).replace(",", ".")) if numero else 0
+    if not 0 < cantidad <= MAX_CANTIDAD:
+        await update.message.reply_text('Escribe cuántas unidades, por ejemplo 24, o "cancelar".')
+        return
+    del _chat_calculo[chat_id]
+    respuesta = tools.escalar_ingredientes(estado["producto"], estado["variante"], cantidad)
+    try:
+        respuesta += "\n\n" + tools.escalar_receta(estado["producto"], estado["variante"], cantidad)
+    except ValueError as exc:
+        respuesta += f"\n\nNo pude calcular el costo: {exc}"
+    await update.message.reply_text(respuesta[:MAX_TEXTO_BOTON], reply_markup=menu.volver_al_menu())
+
+
+async def _accion_de_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, accion: str) -> None:
+    chat_id = update.effective_chat.id
+    boton = _UpdateDeBoton(update, context.bot)
+    if accion == "cancelar":
+        _cancelar_flujos(chat_id)
+        await boton.message.reply_text("Listo, cancelado.")
+        await boton.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
+        return
+    if accion == "salir":
+        acceso.cerrar_sesion(update.effective_user.id)
+        _olvidar_chat(chat_id)
+        await boton.message.reply_text("Sesión cerrada.", reply_markup=ReplyKeyboardRemove())
+        return
+    if accion == "lista":
+        await _enviar_pdf(boton, mayorista.generar_pdf_lista())
+        return
+    if accion == "avisos":
+        await avisos(boton, context)
+        return
+    if accion == "costo_hoy":
+        hoy = datetime.now(sync_automatica.ZONA).date().isoformat()
+        await boton.message.reply_text(tools.costo_diario(hoy))
+        return
+
+    en_curso = _flujo_en_curso(chat_id)
+    if en_curso:
+        await boton.message.reply_text(f"Tienes {en_curso} sin terminar. Termínala o cancélala primero.",
+                                       reply_markup=menu.cancelar_en_curso())
+        return
+    _limpiar_consultas(chat_id)
+    if accion == "cotizar":
+        await _iniciar_cotizacion(boton, chat_id)
+    elif accion == "cotizaciones":
+        await _mostrar_cotizaciones(boton, chat_id)
+    elif accion == "clientes":
+        await _consultar_clientes(boton, chat_id)
+    elif accion == "factura":
+        await _iniciar_factura(boton, chat_id)
+    elif accion == "asociar":
+        await _iniciar_asociar(boton, chat_id)
+    elif accion == "sync_recetas":
+        await _iniciar_sync_recetas(boton, chat_id)
+    elif accion == "sync_clientes":
+        await _iniciar_sincronizacion(boton, chat_id)
+    elif accion in ("agregar", "quitar"):
+        await _iniciar_gestion_mayorista(boton, chat_id, accion)
+    elif accion == "subir":
+        await subir_cotizaciones(boton, context)
+
+
+async def pulsar_boton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    chat_id = update.effective_chat.id
+    dato = query.data or ""
+
+    if dato.startswith(menu.PREFIJO_RESPUESTA):
+        if not _hay_flujo(chat_id) or query.message.message_id != _chat_ultima_pregunta.get(chat_id):
+            await query.answer("Esta pregunta ya no está vigente.", show_alert=True)
+            await _quitar_botones(query)
+            return
+        await query.answer()
+        await _quitar_botones(query)
+        await responder(_UpdateDeBoton(update, context.bot, dato[len(menu.PREFIJO_RESPUESTA):]), context)
+        return
+
+    await query.answer()
+    tipo, _, resto = dato.partition(":")
+    if tipo == "a":
+        await _accion_de_menu(update, context, resto)
+    elif tipo == "m":
+        pantallas = {"principal": (_TEXTO_MENU, menu.principal), "admin": (_TEXTO_ADMINISTRACION, menu.administracion),
+                     "recetas": (_TEXTO_RECETAS, menu.teclado_productos), "produccion": (_TEXTO_PRODUCCION, menu.produccion)}
+        if resto in pantallas:
+            texto, teclado = pantallas[resto]
+            await _editar(update, context, texto, teclado())
+    elif tipo in ("rp", "rv", "rc", "rt"):
+        try:
+            await _navegar_recetas(update, context, tipo, [int(n) for n in resto.split(":")])
+        except IndexError:
+            # el catalogo cambio desde que se dibujo este boton
+            await _editar(update, context, _TEXTO_RECETAS, menu.teclado_productos())
+
+
+async def menu_comando(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Agente interno Malatesta. Pregúntame por recetas, costos de "
-        "fabricación para un pedido, o el costo de producción del día. "
-        "Para venta mayorista: /cotizacion, /cotizaciones (historial), /clientes, /sincronizarclientes, /sincronizarrecetas, /avisos, /factura, /asociarfactura, /subircotizaciones, /listamayorista, "
-        "/agregarmayorista o /quitarmayorista."
+        "Agente interno Malatesta. Usa los botones o pregúntame por recetas, costos de "
+        "fabricación para un pedido, o el costo de producción del día."
     )
+    await update.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
 
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     texto = update.message.text
+
+    if menu.PATRON_MENU.fullmatch(texto):
+        await update.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
+        return
+
+    if chat_id in _chat_calculo:
+        await _continuar_calculo(update, chat_id, texto)
+        return
 
     if chat_id in _chat_cotizacion:
         await _continuar_cotizacion(update, chat_id, texto)
@@ -825,12 +1085,12 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(respuesta)
 
 
-def main() -> None:
-    sync_server.start_background()
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
-    app = Application.builder().token(token).post_init(_iniciar_sync_automatica).build()
+def construir_aplicacion(token: str) -> Application:
+    app = Application.builder().bot(_BotConBotones(token=token)).post_init(_al_iniciar).build()
     app.add_handler(TypeHandler(Update, verificar_acceso), group=-1)
+    app.add_handler(CallbackQueryHandler(pulsar_boton))
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu_comando))
     app.add_handler(CommandHandler("cotizacion", cotizacion))
     app.add_handler(CommandHandler("listamayorista", lista_mayorista))
     app.add_handler(CommandHandler("agregarmayorista", agregar_mayorista))
@@ -846,7 +1106,12 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Document.ALL, recibir_documento))
     app.add_handler(MessageHandler(filters.PHOTO, recibir_foto))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
-    app.run_polling()
+    return app
+
+
+def main() -> None:
+    sync_server.start_background()
+    construir_aplicacion(os.environ["TELEGRAM_BOT_TOKEN"]).run_polling()
 
 
 if __name__ == "__main__":
