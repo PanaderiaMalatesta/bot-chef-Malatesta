@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
@@ -726,7 +727,7 @@ async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except TelegramError:
             logging.warning("No se pudo borrar el mensaje con la clave")
         await mensaje.chat.send_message("Clave correcta. Tu sesión dura 24 horas; escribe tu consulta o usa el menú.")
-        await mensaje.chat.send_message(_TEXTO_MENU, reply_markup=menu.principal())
+        await _enviar_menu(context.bot, mensaje.chat.id)
     else:
         await mensaje.reply_text(_RESPUESTAS_ACCESO[resultado], reply_markup=ReplyKeyboardRemove())
     raise ApplicationHandlerStop
@@ -741,6 +742,8 @@ _TEXTO_ADMINISTRACION = "Administración"
 _TEXTO_RECETAS = "Elige un producto:"
 _TEXTO_PRODUCCION = ('Para registrar lo producido, escríbelo así: "hoy hicimos 100 facturas de membrillo".\n\n'
                      "También puedes ver el costo de lo que llevas hoy.")
+_RUTA_IMAGEN_MENU = Path(__file__).resolve().parent.parent / "assets" / "menu.jpg"
+_id_imagen_menu: str | None = None
 _chat_ultima_pregunta: dict[int, int] = {}
 _chat_calculo: dict[int, dict] = {}
 _PATRON_CANTIDAD = re.compile(r"\d+(?:[.,]\d+)?")
@@ -749,6 +752,22 @@ MAX_CANTIDAD = 100000
 
 def _hay_flujo(chat_id: int) -> bool:
     return bool(_flujo_en_curso(chat_id)) or chat_id in _chat_clientes or chat_id in _chat_ver_cotizaciones or chat_id in _chat_calculo
+
+
+async def _enviar_menu(bot, chat_id: int) -> None:
+    """Telegram guarda la imagen al primer envio: despues basta con su identificador."""
+    global _id_imagen_menu
+    try:
+        if _id_imagen_menu:
+            await bot.send_photo(chat_id=chat_id, photo=_id_imagen_menu, caption=_TEXTO_MENU, reply_markup=menu.principal())
+            return
+        with open(_RUTA_IMAGEN_MENU, "rb") as imagen:
+            enviado = await bot.send_photo(chat_id=chat_id, photo=imagen, caption=_TEXTO_MENU, reply_markup=menu.principal())
+        _id_imagen_menu = enviado.photo[-1].file_id
+    except (TelegramError, OSError):
+        # el menu importa mas que la imagen
+        logging.warning("No se pudo enviar la imagen del menú")
+        await bot.send_message(chat_id, _TEXTO_MENU, reply_markup=menu.principal())
 
 
 class _BotConBotones(ExtBot):
@@ -863,7 +882,7 @@ async def _accion_de_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, ac
     if accion == "cancelar":
         _cancelar_flujos(chat_id)
         await boton.message.reply_text("Listo, cancelado.")
-        await boton.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
+        await _enviar_menu(context.bot, chat_id)
         return
     if accion == "salir":
         acceso.cerrar_sesion(update.effective_user.id)
@@ -941,7 +960,7 @@ async def pulsar_boton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def menu_comando(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
+    await _enviar_menu(context.bot, update.effective_chat.id)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -949,7 +968,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Agente interno Malatesta. Usa los botones o pregúntame por recetas, costos de "
         "fabricación para un pedido, o el costo de producción del día."
     )
-    await update.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
+    await _enviar_menu(context.bot, update.effective_chat.id)
 
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -957,7 +976,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     texto = update.message.text
 
     if menu.PATRON_MENU.fullmatch(texto):
-        await update.message.reply_text(_TEXTO_MENU, reply_markup=menu.principal())
+        await _enviar_menu(context.bot, chat_id)
         return
 
     if chat_id in _chat_calculo:
