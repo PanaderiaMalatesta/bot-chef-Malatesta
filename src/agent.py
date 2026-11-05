@@ -63,6 +63,16 @@ Reglas importantes:
     evento de 50 facturas") → usa herramienta_escalar_ingredientes
     directamente con esa cantidad (no preguntes nada extra, no uses
     herramienta_receta_estandar en ese caso).
+  - Si pide LOTES, batchs, tandas o multiplicar la receta ("necesito 4 lotes",
+    "haz el doble", "multiplica la receta x 3") → usa
+    herramienta_escalar_por_lotes. Un lote es la receta estándar completa, NO una
+    unidad: nunca le pases lotes a herramienta_escalar_ingredientes ni a
+    herramienta_escalar_receta. Multiplicar tú sobre una respuesta anterior es un
+    error grave: cada pedido se calcula desde la receta, con la herramienta.
+  - Si piden lotes y no dicen de qué producto, y la conversación no deja claro de
+    cuál hablan, pregúntalo. No lo adivines.
+  - herramienta_registrar_produccion recibe UNIDADES. Si te dicen que hicieron
+    lotes ("hoy hicimos 2 lotes de brownie"), pregunta cuántas unidades salieron.
   - Si pide el PROCEDIMIENTO/pasos de preparación ("cómo se hace", "cuál es
     la técnica", "qué pasos sigo") → usa herramienta_buscar_en_recetario, que
     busca el texto narrativo del recetario.
@@ -93,7 +103,7 @@ Reglas importantes:
 - NUNCA inventes ni calcules cifras de memoria (ni ingredientes, ni
   cantidades, ni temperaturas/tiempos de horneado, ni costos). Toda cifra
   debe salir literalmente de una herramienta (escalar_receta, buscar_receta,
-  receta_estandar, escalar_ingredientes, buscar_en_recetario,
+  receta_estandar, escalar_ingredientes, escalar_por_lotes, buscar_en_recetario,
   registrar_produccion, costo_diario). Si una herramienta no tiene el dato,
   dilo claramente en vez de estimar.
 - SIEMPRE tienes que intentar llamar a la herramienta correspondiente antes de
@@ -335,10 +345,20 @@ def herramienta_receta_estandar(producto: str, variante: str) -> str:
 @tool
 def herramienta_escalar_ingredientes(producto: str, variante: str, cantidad: float) -> str:
     """Devuelve la lista de insumos y cantidades REALES (gramos/kg/L/unidades) para
-    fabricar `cantidad` de un producto/variante -- para saber qué pesar/comprar.
+    fabricar `cantidad` UNIDADES de un producto/variante -- para saber qué pesar/comprar.
     Usar esto (no herramienta_escalar_receta, que da el COSTO) cuando el usuario
-    quiere hacer una receta a una cantidad específica."""
+    quiere hacer una receta a una cantidad específica de unidades. Si habla de lotes,
+    usar herramienta_escalar_por_lotes."""
     return t.escalar_ingredientes(producto, variante, cantidad)
+
+
+@tool
+def herramienta_escalar_por_lotes(producto: str, variante: str, lotes: float) -> str:
+    """Multiplica la receta por LOTES: `lotes` es cuántas veces se hace la receta
+    estándar completa, no unidades (4 lotes de una receta que rinde 9 son 36 unidades).
+    Usar cuando el usuario dice lotes, batchs, tandas, "el doble" o "multiplica la
+    receta". Muestra el resultado tal cual lo devuelve."""
+    return t.escalar_por_lotes(producto, variante, lotes)
 
 
 @tool
@@ -374,6 +394,7 @@ def herramienta_buscar_en_recetario(pregunta: str) -> str:
 TOOLS = [
     herramienta_receta_estandar,
     herramienta_escalar_ingredientes,
+    herramienta_escalar_por_lotes,
     herramienta_listar_variantes,
     herramienta_listar_precios_insumos,
     herramienta_actualizar_precio_insumo,

@@ -32,6 +32,7 @@ from . import (
     acceso,
     drive_clientes,
     facturas,
+    flujo_masa,
     mayorista,
     menu,
     planilla_clientes,
@@ -680,6 +681,7 @@ def _limpiar_consultas(chat_id: int) -> None:
     _chat_clientes.pop(chat_id, None)
     _chat_ver_cotizaciones.discard(chat_id)
     _chat_calculo.pop(chat_id, None)
+    _chat_masa.pop(chat_id, None)
 
 
 def _cancelar_flujos(chat_id: int) -> None:
@@ -691,7 +693,7 @@ def _cancelar_flujos(chat_id: int) -> None:
 
 def _olvidar_chat(chat_id: int) -> None:
     """Al cerrar sesion no debe quedar la conversacion ni un flujo a medias."""
-    for estado in (_chat_messages, _chat_ultima_lista):
+    for estado in (_chat_messages, _chat_ultima_lista, _chat_ultima_receta):
         estado.pop(chat_id, None)
     _cancelar_flujos(chat_id)
 
@@ -715,6 +717,10 @@ async def verificar_acceso(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             _olvidar_chat(mensaje.chat.id)
             await mensaje.reply_text("Sesión cerrada.", reply_markup=ReplyKeyboardRemove())
             raise ApplicationHandlerStop
+        # un comando deja atras el calculo a medias: si no, este se quedaria con sus respuestas
+        if mensaje.text and mensaje.text.startswith("/") and not menu.PATRON_MENU.fullmatch(mensaje.text):
+            _chat_calculo.pop(mensaje.chat.id, None)
+            _chat_masa.pop(mensaje.chat.id, None)
         return
 
     # un comando, el boton de menu o una foto nunca cuentan como intento de clave
@@ -746,12 +752,15 @@ _RUTA_IMAGEN_MENU = Path(__file__).resolve().parent.parent / "assets" / "menu.jp
 _id_imagen_menu: str | None = None
 _chat_ultima_pregunta: dict[int, int] = {}
 _chat_calculo: dict[int, dict] = {}
+_chat_masa: dict[int, dict] = {}
+_chat_ultima_receta: dict[int, tuple[str, str]] = {}
 _PATRON_CANTIDAD = re.compile(r"\d+(?:[.,]\d+)?")
 MAX_CANTIDAD = 100000
 
 
 def _hay_flujo(chat_id: int) -> bool:
-    return bool(_flujo_en_curso(chat_id)) or chat_id in _chat_clientes or chat_id in _chat_ver_cotizaciones or chat_id in _chat_calculo
+    return bool(_flujo_en_curso(chat_id)) or chat_id in _chat_clientes or chat_id in _chat_ver_cotizaciones or chat_id in _chat_calculo \
+        or chat_id in _chat_masa
 
 
 async def _enviar_menu(bot, chat_id: int) -> None:
@@ -819,11 +828,21 @@ async def _editar(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str
 
 
 MAX_TEXTO_BOTON = 4000
+_HERRAMIENTAS_DE_RECETA = {"herramienta_receta_estandar", "herramienta_escalar_ingredientes", "herramienta_escalar_por_lotes",
+                           "herramienta_escalar_receta", "herramienta_buscar_receta"}
 
 
 def _receta_de(i: int, j: int) -> tuple[str, str]:
     producto = menu.productos()[i]
     return producto, menu.variantes(producto)[j]
+
+
+def _recordar_receta(chat_id: int, producto: str, variante: str, pedido: str, respuesta: str) -> None:
+    """Lo resuelto sin el agente tambien es parte de la conversacion: sin esto, el agente
+    sigue hablando del ultimo producto que el vio (se pedian lotes de brownie viendo su
+    receta en los botones, y respondia con alfajores)."""
+    _chat_ultima_receta[chat_id] = (producto, variante)
+    _chat_messages.setdefault(chat_id, []).extend([("human", pedido), ("ai", respuesta)])
 
 
 async def _navegar_recetas(update: Update, context: ContextTypes.DEFAULT_TYPE, tipo: str, partes: list[int]) -> None:
@@ -840,7 +859,9 @@ async def _navegar_recetas(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     nombre = f"{tools._legible(producto)} {tools._legible(variante)}".strip()
     if tipo == "rv":
         hay_mas = len(menu.variantes(producto)) > 1
-        await _editar(update, context, tools.receta_estandar(producto, variante), menu.teclado_receta(*partes, hay_mas))
+        receta = tools.receta_estandar(producto, variante)
+        _recordar_receta(chat_id, producto, variante, f"Muéstrame la receta de {nombre}.", receta)
+        await _editar(update, context, receta, menu.teclado_receta(*partes, hay_mas))
         return
     en_curso = _flujo_en_curso(chat_id)
     if en_curso:
@@ -848,12 +869,22 @@ async def _navegar_recetas(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                                        reply_markup=menu.cancelar_en_curso())
         return
     _limpiar_consultas(chat_id)
+    if tipo == "rl":
+        rinde = tools.rinde_del_lote(producto, variante)
+        if rinde is None:
+            await context.bot.send_message(chat_id, tools.escalar_por_lotes(producto, variante, 1))
+            return
+        _chat_calculo[chat_id] = {"producto": producto, "variante": variante, "nombre": nombre, "en_lotes": True}
+        await context.bot.send_message(chat_id, f"¿Cuántos lotes de {nombre}? Un lote rinde {rinde:g}. Elige o escribe el número.",
+                                       reply_markup=menu.teclado_lotes())
+        return
     if tipo == "rc":
         _chat_calculo[chat_id] = {"producto": producto, "variante": variante, "nombre": nombre}
         await context.bot.send_message(chat_id, f"¿Cuántas unidades de {nombre}? Elige o escribe el número.",
                                        reply_markup=menu.teclado_cantidades())
         return
     await responder(_UpdateDeBoton(update, context.bot, f"¿Cómo se prepara {nombre}? Muéstrame el procedimiento."), context)
+    _chat_ultima_receta[chat_id] = (producto, variante)
 
 
 async def _continuar_calculo(update: Update, chat_id: int, texto: str) -> None:
@@ -862,18 +893,147 @@ async def _continuar_calculo(update: Update, chat_id: int, texto: str) -> None:
         del _chat_calculo[chat_id]
         await update.message.reply_text("Ok.")
         return
+    if "opciones" in estado:
+        await _elegir_receta_de_lotes(update, chat_id, estado, texto)
+        return
     numero = _PATRON_CANTIDAD.search(texto)
     cantidad = float(numero.group(0).replace(",", ".")) if numero else 0
     if not 0 < cantidad <= MAX_CANTIDAD:
-        await update.message.reply_text('Escribe cuántas unidades, por ejemplo 24, o "cancelar".')
+        await update.message.reply_text("Escribe cuántos lotes, por ejemplo 4, o \"cancelar\"." if estado.get("en_lotes")
+                                        else 'Escribe cuántas unidades, por ejemplo 24, o "cancelar".')
         return
     del _chat_calculo[chat_id]
+    if estado.get("en_lotes"):
+        await _enviar_lotes(update, chat_id, estado["producto"], estado["variante"], cantidad)
+        return
     respuesta = tools.escalar_ingredientes(estado["producto"], estado["variante"], cantidad)
     try:
         respuesta += "\n\n" + tools.escalar_receta(estado["producto"], estado["variante"], cantidad)
     except ValueError as exc:
         respuesta += f"\n\nNo pude calcular el costo: {exc}"
+    _recordar_receta(chat_id, estado["producto"], estado["variante"], f"Calcula {cantidad:g} unidades de {estado['nombre']}.", respuesta)
     await update.message.reply_text(respuesta[:MAX_TEXTO_BOTON], reply_markup=menu.volver_al_menu())
+
+
+# --- Lotes --------------------------------------------------------------------
+#
+# En cocina se trabaja por lotes, y "4 lotes" no puede depender de que el LLM recuerde de
+# qué receta se habla ni de que multiplique bien: se observo en produccion que devolvia 4
+# unidades como si fueran 4 lotes, y que multiplicaba sobre su respuesta anterior. Lo que
+# no se entienda aca (nombra algo que no es una receta, "hoy hicimos...") sigue al agente,
+# que tiene la misma cuenta en herramienta_escalar_por_lotes.
+_NUMEROS_ESCRITOS = {"medio": 0.5, "media": 0.5, "un": 1.0, "una": 1.0, "dos": 2.0, "tres": 3.0, "cuatro": 4.0, "cinco": 5.0,
+                     "seis": 6.0, "siete": 7.0, "ocho": 8.0, "nueve": 9.0, "diez": 10.0}
+_NUMERO = r"\d+(?:[.,]\d+)?"
+_PATRON_LOTES = re.compile(rf"(?<![\w.,])({_NUMERO}|{'|'.join(_NUMEROS_ESCRITOS)})\s*(?:lotes?|batch(?:e?s)?|tandas?)\b", re.IGNORECASE)
+# "2 recetas de brownie" son dos lotes; "una receta de brownie" sigue pidiendo la receta
+_PATRON_RECETAS_DE = re.compile(rf"(?<![\w.,])({_NUMERO}|{'|'.join(n for n, v in _NUMEROS_ESCRITOS.items() if v > 1)})\s*recetas\s+de\b", re.IGNORECASE)
+_PATRON_MULTIPLICAR = re.compile(r"\bmultipl\w*", re.IGNORECASE)
+_PATRON_POR_N = re.compile(rf"\b(?:x|por)\s*({_NUMERO})(?![\w%])", re.IGNORECASE)
+_PATRON_RECETA_POR_N = re.compile(rf"\brecetas?\s*(?:x|por)\s*({_NUMERO})(?![\w%])|\bx\s*({_NUMERO})\s+(?:la\s+|esta\s+|esa\s+)?receta\b", re.IGNORECASE)
+_VECES_ESCRITAS = {"el doble": 2.0, "el triple": 3.0, "duplica": 2.0, "triplica": 3.0}
+_PATRON_VECES_ESCRITAS = re.compile(rf"\b({'|'.join(_VECES_ESCRITAS)})\b", re.IGNORECASE)
+# Lo que puede acompañar a un pedido de lotes sin nombrar una receta.
+_PALABRAS_DEL_PEDIDO = {
+    "necesito", "necesitamos", "quiero", "queremos", "hacer", "haz", "hazme", "hagamos", "hare", "haremos", "voy", "vamos", "a",
+    "hay", "que", "tengo", "tenemos", "de", "del", "la", "el", "los", "las", "lo", "un", "una", "esta", "este", "esa", "ese", "receta",
+    "recetas", "calcula", "calcular", "calculame", "calculemos", "dame", "dime", "muestrame", "prepara", "preparar", "preparemos",
+    "producir", "por", "favor", "porfa", "ahora", "hoy", "manana", "solo", "otro", "otros", "otra", "otras", "me", "nos", "y", "x",
+}
+
+
+def _pedido_de_lotes(texto: str) -> tuple[float, str] | None:
+    """Cuantos lotes se piden y lo que se dice de la receta, o None si no se piden lotes."""
+    coincide = (_PATRON_LOTES.search(texto) or _PATRON_RECETAS_DE.search(texto) or _PATRON_RECETA_POR_N.search(texto)
+                or _PATRON_VECES_ESCRITAS.search(texto))
+    if not coincide and _PATRON_MULTIPLICAR.search(texto):
+        coincide = _PATRON_POR_N.search(texto)
+    if not coincide:
+        return None
+    crudo = next(grupo for grupo in coincide.groups() if grupo).lower()
+    lotes = _VECES_ESCRITAS.get(crudo) or _NUMEROS_ESCRITOS.get(crudo) or float(crudo.replace(",", "."))
+    if not 0 < lotes <= MAX_CANTIDAD:
+        return None
+    resto = re.split(r"\bpara\b", f"{texto[:coincide.start()]} {texto[coincide.end():]}", maxsplit=1, flags=re.IGNORECASE)[0]
+    palabras = [p for p in re.findall(r"\w+", resto) if tools._normalizar(p) not in _PALABRAS_DEL_PEDIDO
+                and not _PATRON_MULTIPLICAR.match(p) and not p.isdigit()]
+    return lotes, " ".join(palabras)
+
+
+async def _enviar_lotes(update: Update, chat_id: int, producto: str, variante: str, lotes: float) -> None:
+    respuesta = tools.escalar_por_lotes(producto, variante, lotes)
+    rinde = tools.rinde_del_lote(producto, variante)
+    if rinde:
+        try:
+            respuesta += "\n\n" + tools.escalar_receta(producto, variante, lotes * rinde)
+        except ValueError as exc:
+            respuesta += f"\n\nNo pude calcular el costo: {exc}"
+    _recordar_receta(chat_id, producto, variante, f"Calcula {lotes:g} lotes de {tools.nombre_receta(producto, variante)}.", respuesta)
+    await update.message.reply_text(respuesta[:MAX_TEXTO_BOTON], reply_markup=menu.volver_al_menu())
+
+
+async def _elegir_receta_de_lotes(update: Update, chat_id: int, estado: dict, texto: str) -> None:
+    opciones = estado["opciones"]
+    if not re.fullmatch(r"\s*\d{1,3}\s*", texto) or not 1 <= int(texto) <= len(opciones):
+        await update.message.reply_text(f'Responde un número del 1 al {len(opciones)}, o "cancelar".')
+        return
+    del _chat_calculo[chat_id]
+    await _enviar_lotes(update, chat_id, *opciones[int(texto) - 1], estado["lotes"])
+
+
+async def _atender_lotes(update: Update, chat_id: int, texto: str) -> bool:
+    """Devuelve False si el mensaje no es un pedido de lotes que se entienda aca."""
+    pedido = _pedido_de_lotes(texto)
+    if pedido is None:
+        return False
+    lotes, nombre = pedido
+    recetas = tools.recetas_que_calzan(nombre) if nombre else [_chat_ultima_receta[chat_id]] if chat_id in _chat_ultima_receta else []
+    if nombre and not recetas:
+        return False
+    cifra = f"{lotes:g}".replace(".", ",")
+    if not recetas:
+        await update.message.reply_text(f"¿De qué receta quieres {cifra} {'lote' if lotes <= 1 else 'lotes'}? Elige el producto, "
+                                        f'o escríbelo: "{cifra} lotes de brownie".', reply_markup=menu.teclado_productos())
+    elif len(recetas) == 1:
+        await _enviar_lotes(update, chat_id, *recetas[0], lotes)
+    else:
+        _chat_calculo[chat_id] = {"opciones": recetas, "lotes": lotes}
+        lista = "\n".join(f"{i}. {tools.nombre_receta(*r)}" for i, r in enumerate(recetas, start=1))
+        await update.message.reply_text(f"¿De cuál quieres {cifra} {'lote' if lotes <= 1 else 'lotes'}?\n{lista}\n\n"
+                                        'Responde el número o "cancelar".')
+    return True
+
+
+async def _preguntar_masa(update: Update, chat_id: int, texto: str | None = None) -> None:
+    estado = _chat_masa[chat_id]
+    await update.message.reply_text(texto or flujo_masa.siguiente_pregunta(estado),
+                                    reply_markup=menu.teclado_masa(flujo_masa.opciones(estado), flujo_masa.puede_volver(estado)))
+
+
+async def _iniciar_masa(update: Update, chat_id: int) -> None:
+    _chat_masa[chat_id] = flujo_masa.iniciar()
+    await _preguntar_masa(update, chat_id)
+
+
+async def _continuar_masa(update: Update, chat_id: int, texto: str) -> None:
+    estado = _chat_masa[chat_id]
+    if _PATRON_CANCELAR_FLUJO.match(texto):
+        del _chat_masa[chat_id]
+        await update.message.reply_text("Ok.")
+        return
+    error = flujo_masa.aplicar_respuesta(estado, texto)
+    if error:
+        await _preguntar_masa(update, chat_id, error)
+        return
+    if estado["preguntando"]:
+        await _preguntar_masa(update, chat_id)
+        return
+    resultado = flujo_masa.calcular(estado)
+    if resultado is None:
+        await _preguntar_masa(update, chat_id)
+        return
+    del _chat_masa[chat_id]
+    await update.message.reply_text(resultado, reply_markup=menu.otra_masa())
 
 
 async def _accion_de_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, accion: str) -> None:
@@ -888,6 +1048,10 @@ async def _accion_de_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, ac
         acceso.cerrar_sesion(update.effective_user.id)
         _olvidar_chat(chat_id)
         await boton.message.reply_text("Sesión cerrada.", reply_markup=ReplyKeyboardRemove())
+        return
+    if accion == "recetas":
+        # en un mensaje nuevo: lo calculado sigue a la vista
+        await boton.message.reply_text(_TEXTO_RECETAS, reply_markup=menu.teclado_productos())
         return
     if accion == "lista":
         await _enviar_pdf(boton, mayorista.generar_pdf_lista())
@@ -906,7 +1070,9 @@ async def _accion_de_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, ac
                                        reply_markup=menu.cancelar_en_curso())
         return
     _limpiar_consultas(chat_id)
-    if accion == "cotizar":
+    if accion == "masa":
+        await _iniciar_masa(boton, chat_id)
+    elif accion == "cotizar":
         await _iniciar_cotizacion(boton, chat_id)
     elif accion == "cotizaciones":
         await _mostrar_cotizaciones(boton, chat_id)
@@ -951,7 +1117,7 @@ async def pulsar_boton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if resto in pantallas:
             texto, teclado = pantallas[resto]
             await _editar(update, context, texto, teclado())
-    elif tipo in ("rp", "rv", "rc", "rt"):
+    elif tipo in ("rp", "rv", "rc", "rl", "rt"):
         try:
             await _navegar_recetas(update, context, tipo, [int(n) for n in resto.split(":")])
         except IndexError:
@@ -971,6 +1137,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _enviar_menu(context.bot, update.effective_chat.id)
 
 
+def _recordar_receta_del_agente(chat_id: int, mensajes: list) -> None:
+    """Un "4 lotes" despues de hablar con el agente es de la receta que el consulto. Si no
+    consulto una sola, no se sabe de cual: se pregunta, no se usa una anterior."""
+    _chat_ultima_receta.pop(chat_id, None)
+    for mensaje in reversed(mensajes):
+        if isinstance(mensaje, HumanMessage):
+            return
+        for llamada in reversed(getattr(mensaje, "tool_calls", None) or []):
+            if llamada["name"] in _HERRAMIENTAS_DE_RECETA:
+                recetas = tools.recetas_que_calzan(f"{llamada['args'].get('producto', '')} {llamada['args'].get('variante', '')}".strip())
+                if len(recetas) == 1:
+                    _chat_ultima_receta[chat_id] = recetas[0]
+                return
+
+
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     texto = update.message.text
@@ -981,6 +1162,10 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if chat_id in _chat_calculo:
         await _continuar_calculo(update, chat_id, texto)
+        return
+
+    if chat_id in _chat_masa:
+        await _continuar_masa(update, chat_id, texto)
         return
 
     if chat_id in _chat_cotizacion:
@@ -1086,6 +1271,9 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await _iniciar_importacion(update, chat_id, texto_receta, metadata)
         return
 
+    if await _atender_lotes(update, chat_id, texto):
+        return
+
     ultima_lista = _chat_ultima_lista.get(chat_id, {})
     pregunta = _expandir_respuesta_numerica(texto, ultima_lista)
 
@@ -1095,6 +1283,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     resultado = graph.invoke({"messages": messages})
     _chat_messages[chat_id] = _recortar_historial(resultado["messages"])
+    _recordar_receta_del_agente(chat_id, resultado["messages"])
     respuesta = resultado["messages"][-1].content
 
     nueva_lista = _extraer_lista_numerada(respuesta)

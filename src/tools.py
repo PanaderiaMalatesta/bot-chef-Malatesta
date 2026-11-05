@@ -766,7 +766,7 @@ def receta_estandar(producto: str, variante: str) -> str:
         return f"{_legible(producto)} {_legible(variante)} no tiene un desglose de insumos registrado (es costo fijo, sin receta detallada)."
 
     lineas = [f"Receta estándar de {_legible(producto)} {_legible(variante)}:"]
-    for componente, grupo in filas.groupby("componente", sort=False):
+    for componente, grupo in _por_componente(filas):
         rendimiento_lote = grupo["rendimiento_lote"].iloc[0] if "rendimiento_lote" in grupo.columns else 1
         etiqueta_rinde = f" (lote rinde {rendimiento_lote:g})" if rendimiento_lote != 1 else " (por unidad)"
         lineas.append(f"  {componente}{etiqueta_rinde}:")
@@ -778,6 +778,89 @@ def receta_estandar(producto: str, variante: str) -> str:
     if pd.notna(tiempo):
         lineas.append(f"  Tiempo de fabricación: {float(tiempo):g} min/unidad")
 
+    return "\n".join(lineas)
+
+
+def nombre_receta(producto: str, variante: str) -> str:
+    return f"{_legible(producto)} {_legible(variante)}".strip()
+
+
+def _formas_de_palabra(palabra: str) -> list[str]:
+    forma = _normalizar(palabra)
+    return [f for f in (forma, re.sub(r"s$", "", forma), re.sub(r"es$", "", forma)) if len(f) >= 3]
+
+
+def recetas_que_calzan(texto: str) -> list[tuple[str, str]]:
+    """Las recetas que calzan con lo escrito, en singular o plural: "brownies", "factura manjar"."""
+    info = _info_catalogo(texto, "")
+    if info is not None:
+        return [(info["producto"], info["variante"])]
+    formas = [_formas_de_palabra(p) for p in re.findall(r"\w+", texto)]
+    if not formas or not all(formas):
+        return []
+    catalogo = _load_catalogo()
+    return [
+        (fila.producto, fila.variante) for fila in catalogo.itertuples()
+        if all(any(f in _normalizar(f"{fila.producto} {fila.variante} {fila.categoria}") for f in opciones) for opciones in formas)
+    ]
+
+
+def _por_componente(filas: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
+    # groupby se salta las filas sin componente: un insumo no puede desaparecer de la receta
+    return list(filas.assign(componente=filas["componente"].fillna("Sin componente")).groupby("componente", sort=False))
+
+
+def rinde_del_lote(producto: str, variante: str) -> float | None:
+    """Cuantas unidades salen de un lote, o None si no hay receta con insumos.
+
+    Cada componente guarda su propio rinde (la masa 103, un relleno por unidad, un
+    almibar 12). El lote del producto lo define el que mas rinde: los demas se preparan
+    en la cantidad que necesiten esas unidades."""
+    info = _info_catalogo(producto, variante)
+    if info is None:
+        return None
+    filas = _filas_receta(_load_ingredientes(), info["producto"], info["variante"])
+    return None if filas.empty else float(filas["rendimiento_lote"].max())
+
+
+def _cifra(valor: float, decimales: int = 2) -> str:
+    return f"{valor:.{decimales}f}".rstrip("0").rstrip(".").replace(".", ",") if decimales else f"{valor:.0f}"
+
+
+def _cantidad_para_pesar(total: float, unidad: str) -> str:
+    # en cocina se pesa en gramos: 2324 g, no 2.32 kg
+    if unidad in ("kg", "L"):
+        total, unidad = total * 1000, {"kg": "g", "L": "mL"}[unidad]
+    if unidad not in ("g", "mL"):
+        return f"{_cifra(total)} {unidad}"
+    # la planilla guarda por unidad: 4800 g de harina vuelven como 4799,8 g. Lo poco se pesa
+    # fino: un gelificante o la levadura no aguantan el redondeo
+    return f"{_cifra(total, 0 if total >= 100 else 1 if total >= 10 else 2)} {unidad}"
+
+
+def escalar_por_lotes(producto: str, variante: str, lotes: float) -> str:
+    """La receta multiplicada por lotes, por componente, como se prepara en cocina. Un lote
+    es la receta estandar, NO una unidad: para fabricar unidades esta escalar_ingredientes."""
+    info = _info_catalogo(producto, variante)
+    if info is None:
+        return _mensaje_no_encontrado(_load_catalogo(), producto, variante)
+    producto, variante = info["producto"], info["variante"]
+    nombre = nombre_receta(producto, variante)
+    filas = _filas_receta(_load_ingredientes(), producto, variante)
+    if filas.empty:
+        return f"{nombre} no tiene un desglose de insumos registrado (es costo fijo, sin receta detallada)."
+
+    rinde = float(filas["rendimiento_lote"].max())
+    unidades = lotes * rinde
+    verbo = "rinde" if lotes <= 1 else "rinden"
+    lineas = [f"{nombre}: {_cifra(lotes)} {'lote' if lotes <= 1 else 'lotes'} ({verbo} {_cifra(unidades)} {'unidad' if unidades == 1 else 'unidades'})"]
+    grupos = _por_componente(filas)
+    for componente, grupo in grupos:
+        lineas += ["", f"{componente}:"]
+        lineas += [f"  - {fila.insumo}: {_cantidad_para_pesar(fila.cantidad * unidades, fila.unidad)}" for fila in grupo.itertuples()]
+    if filas["rendimiento_lote"].nunique() > 1:
+        principal = next(c for c, grupo in grupos if grupo["rendimiento_lote"].iloc[0] == rinde)
+        lineas += ["", f"El lote lo define {principal} (rinde {rinde:g}); lo demás es lo que necesitan esas unidades."]
     return "\n".join(lineas)
 
 
@@ -804,7 +887,7 @@ def escalar_ingredientes(producto: str, variante: str, cantidad: float) -> str:
         clave = (fila.insumo, fila.unidad)
         acumulado[clave] = acumulado.get(clave, 0.0) + fila.cantidad * cantidad
 
-    lineas = [f"Para {cantidad:g} de {_legible(producto)} {_legible(variante)} necesitas:"]
+    lineas = [f"Para {cantidad:g} {'unidad' if cantidad == 1 else 'unidades'} de {nombre_receta(producto, variante)} necesitas:"]
     lineas += [f"  - {insumo}: {_formatear_cantidad(total, unidad)}" for (insumo, unidad), total in acumulado.items()]
     return "\n".join(lineas)
 
@@ -829,7 +912,7 @@ def escalar_receta(producto: str, variante: str, cantidad: float, food_cost_obje
     costo_total = costo_unitario * cantidad
 
     resultado = [
-        f"{_legible(producto)} {_legible(variante)} x{cantidad:g} unidades:",
+        f"{nombre_receta(producto, variante)} x{cantidad:g} unidades:",
         f"  Costo unitario: ${costo_unitario:.0f} -> Costo total: ${costo_total:.0f}",
     ]
 

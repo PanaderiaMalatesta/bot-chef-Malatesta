@@ -21,6 +21,9 @@ from __future__ import annotations
 BIGA_LEVADURA_SECA_PCT = 0.3
 FACTOR_FRESCA_SECA = 3
 
+# Empieza asi cuando esos numeros no dan una masa: el texto explica por que.
+PROBLEMA = "⚠️ "
+
 
 def levadura_biga_pct(tipo_levadura: str) -> float:
     """% de levadura de la biga (sobre su harina) segun el tipo de levadura."""
@@ -100,12 +103,12 @@ def calcular_masa_pan(
         aporte_biga = porcentaje_prefermento_pct * levadura_prefermento_pct / 100
         if levadura_pct + 1e-9 < aporte_biga:
             return (
-                f"Con la biga al {porcentaje_prefermento_pct:g}% de la harina, la biga ya lleva "
+                f"{PROBLEMA}Con la biga al {porcentaje_prefermento_pct:g}% de la harina, la biga ya lleva "
                 f"{aporte_biga:.2f}% de levadura sobre la harina total "
                 f"({levadura_prefermento_pct:g}% de su propia harina). El % de levadura total "
-                f"que pidió ({levadura_pct:g}%) es menor que eso, así que no queda levadura "
-                "para la masa final. Pregúntale si quiere subir el % de levadura total o "
-                "dejar la masa final sin levadura adicional (usar exactamente ese aporte)."
+                f"pedido ({levadura_pct:g}%) es menor que eso, así que no queda levadura "
+                "para la masa final. Sube el % de levadura total, o usa exactamente ese aporte "
+                "para dejar la masa final sin levadura adicional."
             )
     tl = (tipo_levadura or "").strip().lower()
     nombre_levadura = "Levadura fresca" if tl.startswith("fresc") else "Levadura seca" if tl.startswith("sec") else "Levadura"
@@ -137,11 +140,11 @@ def calcular_masa_pan(
             "sal": "el % de sal del prefermento supera al % de sal total",
         }
         return (
-            "Con esos números queda una cantidad negativa de "
+            f"{PROBLEMA}Con esos números queda una cantidad negativa de "
             + ", ".join(negativos)
             + " para la masa final: "
             + "; ".join(motivo[n] for n in negativos)
-            + ". Explícaselo al usuario y pregúntale qué valor quiere ajustar."
+            + ". Ajusta alguno de esos valores."
         )
     harina_total = Pf / (1 + hf)
     aceite = harina_total * aceite_pct / 100
@@ -236,9 +239,8 @@ def calcular_masa_desde_biga(
     pct_biga = harina_biga / harina_total * 100
     if pct_biga > 100:
         return (
-            f"La biga sola ya tiene {harina_biga:.0f} g de harina, más que toda la harina "
-            f"que necesita una masa de {peso_final_g:g} g. Pregúntale si quiere hacer más masa "
-            "o usar solo una parte de la biga."
+            f"{PROBLEMA}La biga sola ya tiene {harina_biga:.0f} g de harina, más que toda la harina "
+            f"que necesita una masa de {peso_final_g:g} g. Haz más masa o usa solo una parte de la biga."
         )
 
     agua_total = harina_total * hidratacion_pct / 100
@@ -253,15 +255,14 @@ def calcular_masa_desde_biga(
         add["Aceite"] = harina_total * aceite_pct / 100
     if add["Agua"] < -0.5:
         return (
-            f"La biga ya trae {agua_biga:.0f} g de agua, más de lo que pide una masa al "
-            f"{hidratacion_pct:g}% con esa cantidad de harina. Explícaselo y pregúntale si quiere "
-            "subir la hidratación final o bajar el % de biga."
+            f"{PROBLEMA}La biga ya trae {agua_biga:.0f} g de agua, más de lo que pide una masa al "
+            f"{hidratacion_pct:g}% con esa cantidad de harina. Sube la hidratación final o baja el % de biga."
         )
     if add[nombre_lev] < -0.05:
         return (
-            f"La biga ya aporta {lev_biga:.1f} g de levadura ({lev_biga / harina_total * 100:.2f}% "
-            f"sobre la harina total), más que el {levadura_pct:g}% que pidió. Pregúntale si quiere "
-            "subir el % de levadura o no agregar levadura en la masa final."
+            f"{PROBLEMA}La biga ya aporta {lev_biga:.1f} g de levadura ({lev_biga / harina_total * 100:.2f}% "
+            f"sobre la harina total), más que el {levadura_pct:g}% pedido. Sube el % de levadura "
+            "o no agregues levadura en la masa final."
         )
 
     total = peso_biga_g + sum(max(v, 0) for v in add.values())

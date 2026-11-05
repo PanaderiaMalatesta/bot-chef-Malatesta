@@ -20,6 +20,7 @@ PREFIJO_RESPUESTA = "t:"
 MAX_OPCIONES = 30
 MAX_LARGO_BOTON = 45
 CANTIDADES_RAPIDAS = (6, 12, 24, 50, 100)
+LOTES_RAPIDOS = (("½", "0,5"), ("1", "1"), ("2", "2"), ("3", "3"), ("4", "4"), ("5", "5"))
 
 # Solo estas palabras entre comillas son opciones: un ejemplo como "5%" no lo es.
 _OPCIONES = {
@@ -54,7 +55,7 @@ def _en_filas(botones: list[InlineKeyboardButton], por_fila: int = 2) -> list[li
 
 def principal() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [_boton("📖 Recetas y costos", "m:recetas", "success")],
+        [_boton("📖 Recetas y costos", "m:recetas", "success"), _boton("🥖 Calcular masa", "a:masa", "success")],
         [_boton("📄 Cotizar", "a:cotizar", "primary"), _boton("🗂 Cotizaciones", "a:cotizaciones", "primary")],
         [_boton("👥 Clientes", "a:clientes", "primary"), _boton("🧾 Factura", "a:factura", "primary")],
         [_boton("📋 Lista mayorista", "a:lista", "primary"), _boton("🏭 Producción", "m:produccion", "primary")],
@@ -84,7 +85,7 @@ def cancelar_en_curso() -> InlineKeyboardMarkup:
 
 
 def volver_al_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[_boton("⬅️ Volver a recetas", "m:recetas")]])
+    return InlineKeyboardMarkup([[_boton("⬅️ Volver a recetas", "a:recetas")]])
 
 
 def productos() -> list[str]:
@@ -109,8 +110,8 @@ def teclado_variantes(i: int, producto: str) -> InlineKeyboardMarkup:
 
 def teclado_receta(i: int, j: int, hay_mas_variantes: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [_boton("🧮 Calcular una cantidad", f"rc:{i}:{j}", "success")],
-        [_boton("📝 Preparación", f"rt:{i}:{j}", "primary")],
+        [_boton("🧮 Calcular lotes", f"rl:{i}:{j}", "success")],
+        [_boton("🔢 Por unidades", f"rc:{i}:{j}", "primary"), _boton("📝 Preparación", f"rt:{i}:{j}", "primary")],
         [_boton("⬅️ Volver", f"rp:{i}" if hay_mas_variantes else "m:recetas")],
     ])
 
@@ -118,6 +119,25 @@ def teclado_receta(i: int, j: int, hay_mas_variantes: bool) -> InlineKeyboardMar
 def teclado_cantidades() -> InlineKeyboardMarkup:
     rapidas = [_boton(str(n), f"{PREFIJO_RESPUESTA}{n}", "primary") for n in CANTIDADES_RAPIDAS]
     return InlineKeyboardMarkup([rapidas, [_boton("❌ Cancelar", f"{PREFIJO_RESPUESTA}cancelar", "danger")]])
+
+
+def teclado_lotes() -> InlineKeyboardMarkup:
+    rapidos = [_boton(texto, f"{PREFIJO_RESPUESTA}{valor}", "primary") for texto, valor in LOTES_RAPIDOS]
+    return InlineKeyboardMarkup([rapidos, [_boton("❌ Cancelar", f"{PREFIJO_RESPUESTA}cancelar", "danger")]])
+
+
+def teclado_masa(opciones: list[tuple[str, str]], con_atras: bool) -> InlineKeyboardMarkup:
+    botones = [_boton(etiqueta, f"{PREFIJO_RESPUESTA}{valor}", "primary") for etiqueta, valor in opciones]
+    largo = max(len(etiqueta) for etiqueta, _ in opciones)
+    por_fila = 4 if largo <= 8 else 2 if largo <= 14 else 1
+    salida = [_boton("❌ Cancelar", f"{PREFIJO_RESPUESTA}cancelar", "danger")]
+    if con_atras:
+        salida.insert(0, _boton("⬅️ Atrás", f"{PREFIJO_RESPUESTA}atrás"))
+    return InlineKeyboardMarkup([*_en_filas(botones, por_fila), salida])
+
+
+def otra_masa() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[_boton("🥖 Calcular otra masa", "a:masa", "success")]])
 
 
 def _opciones_numeradas(texto: str) -> list[InlineKeyboardButton]:
