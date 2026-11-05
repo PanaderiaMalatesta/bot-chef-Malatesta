@@ -116,7 +116,9 @@ def _expandir_respuesta_numerica(texto: str, ultima_lista: dict[int, str]) -> st
 # prefijo "Receta:" para no confundirse con una pregunta al agente.
 _chat_importacion: dict[int, dict] = {}
 
-_PATRON_URL = re.compile(r"https?://\S+")
+# Al copiar desde el celular el link suele venir sin https://. Sin eso, se exige una ruta
+# despues del dominio: un correo o "malatestachile.cl" en una frase no son para importar.
+_PATRON_URL = re.compile(r"https?://\S+|(?<![@\w.-])(?:www\.\S+|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/\S+)", re.IGNORECASE)
 _PREFIJO_RECETA = re.compile(r"^\s*receta\s*:\s*(.*)$", re.IGNORECASE | re.DOTALL)
 _PATRON_SI = re.compile(r"^\s*(s[ií]|dale|ok|confirmo|correcto)\b", re.IGNORECASE)
 # Para cancelar una importacion en CUALQUIER pregunta pendiente, no solo en
@@ -1260,7 +1262,8 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     url_match = _PATRON_URL.search(texto)
     if url_match:
-        metadata = recipe_import.extraer_de_url(url_match.group(0))
+        url = url_match.group(0)
+        metadata = recipe_import.extraer_de_url(url if url.lower().startswith("http") else f"https://{url}")
         await _iniciar_importacion(update, chat_id, metadata.texto_crudo, metadata)
         return
 
