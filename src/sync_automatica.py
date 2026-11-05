@@ -1,6 +1,7 @@
-"""Sincroniza clientes, recetas e insumos desde las planillas dos veces al dia.
+"""Sincroniza recetas e insumos desde su planilla cada 5 minutos, y clientes dos veces al dia.
 
-Sin nadie que confirme, solo se aplica lo nuevo o modificado. Las eliminaciones
+La planilla de recetas es la informacion real: no importa si el cambio viene de la web o
+se hizo a mano, el bot lo toma igual. Sin nadie que confirme, solo se aplica lo nuevo o modificado. Las eliminaciones
 siempre esperan autorizacion en la sincronizacion manual, y un dato invalido deja
 esa planilla sin cambios. Solo se avisa si paso algo.
 """
@@ -15,6 +16,7 @@ from . import planilla_clientes, planilla_recetas
 from .paths import DATA_DIR
 
 HORAS = (7, 19)
+SEGUNDOS_ENTRE_RECETAS = 5 * 60
 ZONA = ZoneInfo("America/Santiago")
 CHAT_AVISOS_PATH = DATA_DIR / "chat_avisos.txt"
 
@@ -62,10 +64,10 @@ def _recetas() -> list[str]:
     return lineas
 
 
-def ejecutar() -> str | None:
+def ejecutar(con_clientes: bool = True) -> str | None:
     """Devuelve el aviso para el chat, o None si no hubo novedades."""
     secciones = []
-    for titulo, sincronizar in (("Clientes", _clientes), ("Recetas e insumos", _recetas)):
+    for titulo, sincronizar in ((("Clientes", _clientes),) if con_clientes else ()) + (("Recetas e insumos", _recetas),):
         try:
             lineas = sincronizar()
         except planilla_clientes.ErrorPlanilla as exc:
@@ -79,15 +81,26 @@ def ejecutar() -> str | None:
 
 
 async def bucle(app) -> None:
+    # parte revisando: al reiniciar, el bot se pone al dia con lo que cambio mientras no estaba
+    proximos_clientes = proxima_ejecucion(datetime.now(ZONA))
+    ultimo_aviso = None
     while True:
         ahora = datetime.now(ZONA)
-        await asyncio.sleep((proxima_ejecucion(ahora) - ahora).total_seconds())
-        aviso = await asyncio.to_thread(ejecutar)
+        con_clientes = ahora >= proximos_clientes
+        if con_clientes:
+            proximos_clientes = proxima_ejecucion(ahora)
+        aviso = await asyncio.to_thread(ejecutar, con_clientes)
+        # un problema que sigue igual (una fila a medio escribir) se avisa una sola vez
+        repetido = aviso == ultimo_aviso
+        ultimo_aviso = aviso
         chat = _chat_avisos()
-        if aviso and chat:
+        if repetido:
+            pass
+        elif aviso and chat:
             try:
                 await app.bot.send_message(chat, aviso)
             except Exception:  # noqa: BLE001
                 logging.exception("No se pudo enviar el aviso de sincronizacion")
         elif aviso:
             logging.info("Sincronizacion automatica sin chat de avisos: %s", aviso)
+        await asyncio.sleep(SEGUNDOS_ENTRE_RECETAS)

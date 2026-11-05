@@ -1,9 +1,10 @@
 """Sincroniza recetas e insumos del bot desde una planilla de Google Sheets.
 
 Igual que con los clientes: se descarga, se compara y, tras confirmar en el chat,
-la planilla manda. La diferencia es lo que falta en ella: una receta importada por
-Telegram todavia no esta en la planilla y no debe perderse, asi que solo se elimina
-lo que estuvo en la sincronizacion anterior y ahora ya no esta.
+la planilla manda. La diferencia es lo que falta en ella: una receta que solo esta en
+el bot no debe perderse, asi que solo se elimina lo que estuvo en la sincronizacion
+anterior y ahora ya no esta. Una receta importada por Telegram se escribe primero en
+la planilla (agregar_receta) y de ahi llega al bot, como cualquier otra.
 
 La planilla usa la cantidad del lote y su rendimiento, como se trabaja en cocina; el
 bot guarda la cantidad por unidad. La preparacion (recetas.md) no pasa por aqui, ni
@@ -15,10 +16,15 @@ import json
 import math
 import os
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 
+import google.auth.exceptions
 import pandas as pd
+import requests
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 
 from . import mayorista, planilla_clientes, tools
 from .paths import DATA_DIR
@@ -32,6 +38,15 @@ _COLUMNAS_RECETA = {"producto": "producto", "variante": "variante", "componente"
                     "cantidad del lote": "lote", "unidad": "unidad", "rinde": "rinde"}
 _COLUMNAS_INSUMO = {"insumo": "insumo", "precio": "precio", "unidad": "unidad"}
 MAX_TEXTO_TELEGRAM = 3800
+_ALCANCE_ESCRITURA = "https://www.googleapis.com/auth/spreadsheets"
+_URL_AGREGAR = "https://sheets.googleapis.com/v4/spreadsheets/{id}/values/{pestana}!A:Z:append"
+_MAX_RESPALDOS = 30
+# la revision periodica corre en otro hilo: dos escrituras a la vez perderian una de ellas
+_CANDADO_ESCRITURA = threading.Lock()
+
+
+class RecetaYaExiste(ErrorPlanilla):
+    """Hay que elegir otro nombre: reintentar con el mismo no sirve."""
 
 
 @dataclass
@@ -271,6 +286,85 @@ def descargar() -> tuple[list[list], list[list]]:
             planilla_clientes.leer_hoja(ID_PLANILLA, "Insumos!A:Z", numeros=True))
 
 
+def _agregar_filas(pestana: str, filas: list[list]) -> None:
+    """Solo agrega al final: no puede pisar lo que se este editando en la web."""
+    credencial = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if not credencial:
+        raise ErrorPlanilla("La conexión con la planilla todavía no está configurada.")
+    try:
+        cuenta = service_account.Credentials.from_service_account_info(json.loads(credencial), scopes=[_ALCANCE_ESCRITURA])
+        cuenta.refresh(Request())
+        # RAW: un numero queda como numero y no lo reinterpreta el idioma de la planilla
+        respuesta = requests.post(_URL_AGREGAR.format(id=ID_PLANILLA, pestana=pestana), timeout=30, json={"values": filas},
+                                  params={"valueInputOption": "RAW", "insertDataOption": "INSERT_ROWS"},
+                                  headers={"Authorization": f"Bearer {cuenta.token}"})
+    except (ValueError, google.auth.exceptions.GoogleAuthError, requests.RequestException) as exc:
+        raise ErrorPlanilla("No pude conectarme con la planilla. No guardé la receta.") from exc
+    if respuesta.status_code in (401, 403):
+        raise ErrorPlanilla("La cuenta del bot no tiene permiso para editar la planilla. No guardé la receta.")
+    if not respuesta.ok:
+        raise ErrorPlanilla("Google rechazó el cambio en la planilla. No guardé la receta.")
+
+
+def _en_columnas(encabezado: list, columnas: dict[str, str], datos: dict) -> list:
+    por_columna = {mayorista._normalizar(str(c)).strip(): i for i, c in enumerate(encabezado)}
+    fila = [""] * len(encabezado)
+    for columna, campo in columnas.items():
+        fila[por_columna[columna]] = datos[campo]
+    return fila
+
+
+def _insumos_que_faltan(lineas: list[dict], insumos: dict[str, dict], insumos_nuevos: dict) -> list[dict]:
+    """La planilla no acepta una receta con un insumo que no este en su lista: si solo lo
+    conoce el bot, se lleva con el precio que tiene."""
+    nuevos = {str(k).lower(): v for k, v in insumos_nuevos.items()}
+    del_bot = {str(f["insumo"]).lower(): f for f in tools._load_precios_insumos().fillna("").to_dict("records")}
+    faltan: dict[str, dict] = {}
+    for nombre in (str(l["insumo"]) for l in lineas):
+        clave = nombre.lower()
+        if clave in insumos or clave in faltan:
+            continue
+        precio, unidad = nuevos[clave] if clave in nuevos else (del_bot[clave]["precio"], del_bot[clave]["unidad"]) if clave in del_bot else (None, "")
+        precio = _numero(precio) if precio is not None else None
+        if precio is None or precio < 0 or unidad not in _UNIDADES_INSUMO:
+            raise ErrorPlanilla(f"Falta un precio o una unidad válida para {nombre}. No guardé la receta.")
+        faltan[clave] = {"insumo": nombre, "precio": precio, "unidad": unidad}
+    return list(faltan.values())
+
+
+def agregar_receta(producto: str, variante: str, lineas: list[dict], insumos_nuevos: dict) -> None:
+    """Escribe una receta nueva en la planilla: desde ahi la ven el bot y la web. Los
+    insumos van primero, para que la planilla nunca quede con una receta que no valida."""
+    filas_recetas, filas_insumos = descargar()
+    recetas, insumos = interpretar(filas_recetas, filas_insumos)
+    clave = _clave(producto, variante)
+    if clave in recetas or clave in _recetas_bot()[0]:
+        raise RecetaYaExiste(f"Ya existe una receta llamada {_nombre(producto, variante)}. No cambié nada.")
+    if not lineas:
+        raise ErrorPlanilla("La receta no tiene ingredientes que se puedan guardar. No guardé la receta.")
+    for linea in lineas:
+        if linea["unidad"] not in tools._FACTOR_A_UNIDAD_INSUMO or not linea["lote"] >= 0 or not linea["rinde"] > 0:
+            raise ErrorPlanilla(f"La cantidad o la unidad de {linea['insumo']} no es válida. No guardé la receta.")
+
+    faltan = _insumos_que_faltan(lineas, insumos, insumos_nuevos)
+    if faltan:
+        _agregar_filas("Insumos", [_en_columnas(filas_insumos[0], _COLUMNAS_INSUMO, i) for i in faltan])
+    _agregar_filas("Ingredientes", [_en_columnas(filas_recetas[0], _COLUMNAS_RECETA, {"producto": producto, "variante": variante, **l})
+                                    for l in lineas])
+    guardadas, _ = interpretar(*descargar())
+    if len(guardadas.get(clave, [])) != len(lineas):
+        raise ErrorPlanilla("La receta no quedó completa en la planilla. Revísala antes de reintentar.")
+
+
+def traer_de_planilla() -> None:
+    """Lo mismo que la sincronizacion automatica: las eliminaciones esperan autorizacion."""
+    c = comparar(*descargar())
+    if c.hay_aplicables:
+        reemplazar(c, con_eliminaciones=False)
+    else:
+        registrar_base(c, pendientes=True)
+
+
 def comparacion_texto(c: Comparacion) -> str:
     def seccion(titulo, lineas):
         return ["", titulo] + lineas if lineas else []
@@ -319,9 +413,18 @@ def _respaldar(marca: str) -> None:
     for ruta in (tools.INGREDIENTES_PATH, tools.PRECIOS_INSUMOS_PATH, tools.CATALOGO_PATH):
         if ruta.exists():
             shutil.copy2(ruta, ruta.with_name(f"{ruta.stem}.bak_{marca}{ruta.suffix}"))
+            # solo los de este respaldo automatico: ...bak_20261105_143000.csv
+            antiguos = sorted(ruta.parent.glob(f"{ruta.stem}.bak_20[0-9][0-9]*_[0-9]*{ruta.suffix}"))[:-_MAX_RESPALDOS]
+            for antiguo in antiguos:
+                antiguo.unlink()
 
 
 def reemplazar(c: Comparacion, con_eliminaciones: bool = True) -> str:
+    with _CANDADO_ESCRITURA:
+        return _reemplazar(c, con_eliminaciones)
+
+
+def _reemplazar(c: Comparacion, con_eliminaciones: bool) -> str:
     """Aplica solo lo mostrado, con respaldo previo. Una receta sin cambios no se
     reescribe, para no arrastrar decimales por convertir ida y vuelta."""
     _respaldar(f"{datetime.now():%Y%m%d_%H%M%S}")

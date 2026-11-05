@@ -1,5 +1,5 @@
 """Orquesta el flujo completo de importar una receta por Telegram: desde el
-texto/URL/imagen crudos hasta guardarla en el catalogo de costeo.
+texto/URL/imagen crudos hasta guardarla en la planilla, de donde la toman el bot y la web.
 
 El estado de una importacion en curso (mientras se le preguntan precios de
 insumos nuevos, unidades ambiguas, rendimiento, y finalmente la confirmacion)
@@ -7,16 +7,18 @@ vive en un dict por chat -- mismo patron que _chat_ultima_lista en
 telegram_bot.py, para que el proximo mensaje del usuario continue el flujo
 en vez de perderlo.
 
-Todo el guardado reusa las herramientas ya existentes de tools.py
-(crear_o_actualizar_insumo, reemplazar_receta_completa) -- este modulo NUNCA
+La informacion real es la de la planilla: la receta se escribe ahi
+(planilla_recetas.agregar_receta) y el bot la recibe desde ahi -- este modulo NUNCA
 escribe un CSV directamente.
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 
 from . import ingest
+from . import planilla_recetas
 from . import recipe_checks
 from . import recipe_import
 from . import recipe_standardize as rs
@@ -594,18 +596,16 @@ def formatear_resumen(estado: dict) -> str:
 
 
 def guardar(estado: dict) -> str:
-    """Escribe la receta confirmada usando las mismas herramientas de
-    tools.py que ya usa el resto del bot (crear_o_actualizar_insumo,
-    reemplazar_receta_completa), agrega la version narrativa al recetario
-    importado, y actualiza el indice de busqueda en caliente."""
+    """Escribe la receta confirmada en la planilla y la trae al bot, agrega la
+    version narrativa al recetario importado, y actualiza el indice de busqueda
+    en caliente. Si no se puede escribir en la planilla, levanta ErrorPlanilla y
+    no queda nada guardado."""
     receta = estado["receta"]
-
-    for clave, (precio, unidad) in estado["insumos_nuevos"].items():
-        t.crear_o_actualizar_insumo(clave, precio, unidad)
 
     rendimiento = receta.rendimiento or 1
     lineas = [
-        {"insumo": ing.insumo_resuelto, "cantidad": ing.cantidad_lote / rendimiento, "unidad": ing.unidad_estandar}
+        {"componente": "Receta", "insumo": ing.insumo_resuelto, "lote": ing.cantidad_lote,
+         "unidad": ing.unidad_estandar, "rinde": rendimiento}
         for ing in receta.ingredientes
         if ing.insumo_resuelto and ing.cantidad_lote is not None and ing.unidad_estandar
         # red de seguridad: nunca guardar un ingrediente cuya unidad no sea
@@ -615,14 +615,20 @@ def guardar(estado: dict) -> str:
         # dejar un costo mal calculado permanente en el catalogo.
         and _unidades_compatibles(ing.unidad_estandar, _unidad_de_cotizacion(ing.insumo_resuelto, estado) or "")
     ]
-    mensaje = t.reemplazar_receta_completa(
-        estado["producto"], estado["variante"] or "", lineas,
-        categoria=estado.get("categoria"), precio_venta=estado.get("precio_venta"),
-    )
+    producto, variante = estado["producto"], estado["variante"] or ""
+    planilla_recetas.agregar_receta(producto, variante, lineas, estado["insumos_nuevos"])
 
     _apendizar_recetario(estado)
     _actualizar_indice(estado)
-    return mensaje
+    lote = f"Lote: {rendimiento:g} {receta.rendimiento_unidad or 'unidades'}."
+    try:
+        planilla_recetas.traer_de_planilla()
+        t.actualizar_info_producto(producto, variante, estado.get("categoria"), estado.get("precio_venta"))
+    except Exception:  # noqa: BLE001
+        # ya esta en la planilla: reintentar diria que la receta ya existe
+        logging.exception("La receta quedo en la planilla, pero no se pudo traer al bot")
+        return f"{lote} Quedó en la planilla, pero todavía no en el bot. Para traerla: /sincronizarrecetas"
+    return f"{lote} Quedó en la planilla, en el bot y en la pestaña Recetas del planificador."
 
 
 def _texto_narrativo(estado: dict) -> str:

@@ -151,7 +151,18 @@ async def _continuar_importacion(update: Update, chat_id: int, texto_respuesta: 
 
     if estado["preguntando"] and estado["preguntando"][0] == "confirmacion":
         if _PATRON_SI.match(texto_respuesta or ""):
-            mensaje = recipe_pipeline.guardar(estado)
+            await update.message.reply_text("Guardando en la planilla...")
+            try:
+                mensaje = await asyncio.to_thread(recipe_pipeline.guardar, estado)
+            except planilla_recetas.RecetaYaExiste as exc:
+                estado["producto"] = None
+                estado["preguntando"] = ("producto", None)
+                await update.message.reply_text(str(exc))
+                await _continuar_importacion(update, chat_id)
+                return
+            except planilla_clientes.ErrorPlanilla as exc:
+                await update.message.reply_text(f'{exc}\n\nResponde "sí" para reintentar o "no" para descartar.')
+                return
             del _chat_importacion[chat_id]
             await update.message.reply_text(f"Listo, guardada. {mensaje}")
             return
